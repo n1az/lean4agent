@@ -86,8 +86,8 @@ class LeanClient:
         finally:
             try:
                 os.unlink(temp_file)
-            except:
-                pass
+            except OSError:
+                pass  # Temporary file cleanup - ignore if already deleted
     
     def apply_tactic(
         self,
