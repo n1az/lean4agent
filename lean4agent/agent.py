@@ -34,7 +34,8 @@ class ProofResult:
         proof_steps: List[ProofStep],
         complete_proof: Optional[str] = None,
         error: Optional[str] = None,
-        iterations: int = 0
+        iterations: int = 0,
+        valid_steps_count: Optional[int] = None
     ):
         """Initialize proof result.
         
@@ -45,6 +46,7 @@ class ProofResult:
             complete_proof: Complete proof code if successful
             error: Error message if failed
             iterations: Number of iterations taken
+            valid_steps_count: Number of valid steps before failure
         """
         self.success = success
         self.theorem = theorem
@@ -52,12 +54,14 @@ class ProofResult:
         self.complete_proof = complete_proof
         self.error = error
         self.iterations = iterations
+        self.valid_steps_count = valid_steps_count if valid_steps_count is not None else sum(1 for s in proof_steps if s.success)
     
     def __repr__(self) -> str:
         return (
             f"ProofResult(success={self.success}, "
             f"iterations={self.iterations}, "
-            f"steps={len(self.proof_steps)})"
+            f"steps={len(self.proof_steps)}, "
+            f"valid_steps={self.valid_steps_count})"
         )
     
     def get_proof_code(self) -> str:
@@ -80,6 +84,37 @@ class ProofResult:
                 code += f"  {step.tactic}\n"
         
         return code
+    
+    def get_proof_status_summary(self) -> str:
+        """Get a summary of proof validation status.
+        
+        Returns:
+            Human-readable summary of which steps were valid/invalid
+        """
+        if self.success:
+            return f"Proof completed successfully with {self.valid_steps_count} valid steps."
+        
+        summary = f"Proof failed after {self.iterations} iterations.\n"
+        summary += f"Valid steps: {self.valid_steps_count} out of {len(self.proof_steps)} attempted.\n"
+        
+        if self.valid_steps_count > 0:
+            summary += "\nValid steps:\n"
+            valid_count = 0
+            for i, step in enumerate(self.proof_steps, 1):
+                if step.success:
+                    valid_count += 1
+                    summary += f"  {valid_count}. {step.tactic}\n"
+        
+        # Find first failing step
+        for i, step in enumerate(self.proof_steps, 1):
+            if not step.success:
+                summary += f"\nFirst invalid step at position {i}:\n"
+                summary += f"  Tactic: {step.tactic}\n"
+                if step.state:
+                    summary += f"  Error/State: {step.state}\n"
+                break
+        
+        return summary
 
 
 class Lean4Agent:
@@ -123,6 +158,7 @@ class Lean4Agent:
             return OpenAIInterface(
                 api_key=self.config.openai_api_key,
                 model=self.config.openai_model,
+                base_url=self.config.openai_base_url,
                 timeout=self.config.timeout
             )
         else:
@@ -237,12 +273,35 @@ class Lean4Agent:
         if verbose:
             print(f"\n✗ Failed to complete proof in {max_iter} iterations")
         
+        # Count valid steps
+        valid_steps = [s for s in proof_steps if s.success]
+        valid_steps_count = len(valid_steps)
+        
+        # Generate proof with 'sorry' if enabled and there are valid steps
+        complete_proof_with_sorry = None
+        if self.config.use_sorry_on_timeout:
+            if not theorem.strip().startswith("theorem"):
+                complete_proof_with_sorry = f"theorem {theorem} := by\n"
+            else:
+                complete_proof_with_sorry = f"{theorem} := by\n"
+            
+            for step in valid_steps:
+                complete_proof_with_sorry += f"  {step.tactic}\n"
+            
+            # Add sorry to complete the proof
+            complete_proof_with_sorry += "  sorry\n"
+            
+            if verbose:
+                print(f"\nGenerated proof with {valid_steps_count} valid steps + 'sorry' for incomplete parts")
+        
         return ProofResult(
             success=False,
             theorem=theorem,
             proof_steps=proof_steps,
+            complete_proof=complete_proof_with_sorry,
             error=f"Max iterations ({max_iter}) reached without completing proof",
-            iterations=max_iter
+            iterations=max_iter,
+            valid_steps_count=valid_steps_count
         )
     
     def verify_proof(self, code: str) -> Dict[str, Any]:

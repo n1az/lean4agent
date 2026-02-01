@@ -16,6 +16,7 @@ class OpenAIInterface(LLMInterface):
         self,
         api_key: str,
         model: str = "gpt-4",
+        base_url: Optional[str] = None,
         timeout: int = 30
     ):
         """Initialize OpenAI interface.
@@ -23,6 +24,7 @@ class OpenAIInterface(LLMInterface):
         Args:
             api_key: OpenAI API key
             model: Model name to use
+            base_url: Base URL for OpenAI API (optional, for OpenAI-compatible APIs)
             timeout: Request timeout in seconds
             
         Raises:
@@ -34,9 +36,14 @@ class OpenAIInterface(LLMInterface):
                 "Install it with: pip install openai"
             )
         
-        self.client = OpenAI(api_key=api_key, timeout=timeout)
+        client_kwargs = {"api_key": api_key, "timeout": timeout}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        
+        self.client = OpenAI(**client_kwargs)
         self.model = model
         self.timeout = timeout
+        self.base_url = base_url
     
     def generate(
         self,

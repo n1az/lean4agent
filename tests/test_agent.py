@@ -158,3 +158,94 @@ def test_lean4agent_verify_proof():
         
         assert result["success"] is True
         mock_lean.verify_proof.assert_called_once()
+
+
+def test_proof_result_valid_steps_count():
+    """Test ProofResult tracks valid steps count."""
+    steps = [
+        ProofStep("intro x", "state1", True),
+        ProofStep("bad_tactic", "error", False),
+        ProofStep("rfl", "complete", True)
+    ]
+    result = ProofResult(
+        success=False,
+        theorem="test : goal",
+        proof_steps=steps,
+        iterations=3
+    )
+    
+    assert result.valid_steps_count == 2
+
+
+def test_proof_result_get_proof_status_summary():
+    """Test proof status summary generation."""
+    steps = [
+        ProofStep("intro x", "state1", True),
+        ProofStep("bad_tactic", "error: unknown tactic", False),
+        ProofStep("rfl", "complete", True)
+    ]
+    result = ProofResult(
+        success=False,
+        theorem="test : goal",
+        proof_steps=steps,
+        error="Max iterations reached",
+        iterations=3,
+        valid_steps_count=2
+    )
+    
+    summary = result.get_proof_status_summary()
+    assert "Valid steps: 2" in summary
+    assert "intro x" in summary
+    assert "First invalid step" in summary
+    assert "bad_tactic" in summary
+
+
+def test_lean4agent_sorry_on_timeout():
+    """Test that 'sorry' is added when max iterations reached."""
+    config = Config(llm_provider="ollama", max_iterations=2, use_sorry_on_timeout=True)
+    
+    with patch('lean4agent.agent.LeanClient') as MockLeanClient:
+        mock_lean = MockLeanClient.return_value
+        mock_lean.get_initial_state.return_value = "⊢ goal"
+        mock_lean.apply_tactic.return_value = {
+            "success": True,
+            "proof": ["step1"],
+            "state": "⊢ goal",
+            "complete": False,
+            "error": None
+        }
+        
+        agent = Lean4Agent(config)
+        agent.llm.generate_proof_step = Mock(return_value="step1")
+        
+        result = agent.generate_proof("test : goal")
+        
+        assert result.success is False
+        assert result.complete_proof is not None
+        assert "sorry" in result.complete_proof
+        assert "step1" in result.complete_proof
+
+
+def test_lean4agent_no_sorry_when_disabled():
+    """Test that 'sorry' is not added when disabled."""
+    config = Config(llm_provider="ollama", max_iterations=2, use_sorry_on_timeout=False)
+    
+    with patch('lean4agent.agent.LeanClient') as MockLeanClient:
+        mock_lean = MockLeanClient.return_value
+        mock_lean.get_initial_state.return_value = "⊢ goal"
+        mock_lean.apply_tactic.return_value = {
+            "success": True,
+            "proof": ["step1"],
+            "state": "⊢ goal",
+            "complete": False,
+            "error": None
+        }
+        
+        agent = Lean4Agent(config)
+        agent.llm.generate_proof_step = Mock(return_value="step1")
+        
+        result = agent.generate_proof("test : goal")
+        
+        assert result.success is False
+        # When sorry is disabled, complete_proof should be None
+        assert result.complete_proof is None

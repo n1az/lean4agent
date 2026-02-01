@@ -94,3 +94,42 @@ def test_config_from_env_with_overrides(monkeypatch):
     assert config.llm_provider == "openai"
     assert config.openai_api_key == "override-key"
     assert config.max_iterations == 200
+
+
+def test_config_openai_base_url():
+    """Test configuration with custom OpenAI base URL."""
+    config = Config(
+        llm_provider="openai",
+        openai_api_key="test-key",
+        openai_base_url="https://api.groq.com/openai/v1"
+    )
+    
+    assert config.openai_base_url == "https://api.groq.com/openai/v1"
+
+
+def test_config_use_sorry_on_timeout():
+    """Test use_sorry_on_timeout configuration."""
+    config_default = Config()
+    assert config_default.use_sorry_on_timeout is True
+    
+    config_disabled = Config(use_sorry_on_timeout=False)
+    assert config_disabled.use_sorry_on_timeout is False
+
+
+def test_config_from_env_openai_base_url(monkeypatch):
+    """Test loading OpenAI base URL from environment variables."""
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.lmstudio.ai/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    
+    config = Config.from_env()
+    
+    assert config.openai_base_url == "https://api.lmstudio.ai/v1"
+
+
+def test_config_from_env_use_sorry_on_timeout(monkeypatch):
+    """Test loading use_sorry_on_timeout from environment variables."""
+    monkeypatch.setenv("USE_SORRY_ON_TIMEOUT", "false")
+    
+    config = Config.from_env()
+    
+    assert config.use_sorry_on_timeout is False

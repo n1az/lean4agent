@@ -81,6 +81,33 @@ agent = Lean4Agent(config)
 result = agent.generate_proof(theorem, verbose=True)
 ```
 
+### Using OpenAI-Compatible APIs (Groq, LMStudio, etc.)
+
+You can use any OpenAI-compatible API by specifying a custom base URL:
+
+```python
+from lean4agent import Lean4Agent, Config
+
+# Configure for Groq
+config = Config(
+    llm_provider="openai",
+    openai_api_key="your-groq-api-key",
+    openai_base_url="https://api.groq.com/openai/v1",
+    openai_model="mixtral-8x7b-32768"
+)
+
+# Or configure for LMStudio
+config = Config(
+    llm_provider="openai",
+    openai_api_key="not-needed",  # LMStudio doesn't require API key
+    openai_base_url="http://localhost:1234/v1",
+    openai_model="local-model"
+)
+
+agent = Lean4Agent(config)
+result = agent.generate_proof(theorem, verbose=True)
+```
+
 ### Using Environment Variables
 
 Create a `.env` file:
@@ -91,6 +118,10 @@ OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=bfs-prover-v2:32b
 MAX_ITERATIONS=50
 TEMPERATURE=0.7
+
+# For OpenAI-compatible APIs
+# OPENAI_BASE_URL=https://api.groq.com/openai/v1
+# OPENAI_API_KEY=your-key
 ```
 
 Then use in your code:
@@ -112,9 +143,11 @@ agent = Lean4Agent(config)
 | `ollama_model` | Ollama model name | `'bfs-prover-v2:32b'` |
 | `openai_api_key` | OpenAI API key | `None` |
 | `openai_model` | OpenAI model name | `'gpt-4'` |
+| `openai_base_url` | OpenAI API base URL (for compatible APIs) | `None` |
 | `max_iterations` | Maximum proof generation iterations | `50` |
 | `temperature` | LLM generation temperature | `0.7` |
 | `timeout` | API request timeout (seconds) | `30` |
+| `use_sorry_on_timeout` | Add 'sorry' when max iterations reached | `True` |
 
 ## Advanced Usage
 
@@ -145,6 +178,44 @@ print(f"Steps attempted: {len(result.proof_steps)}")
 
 for i, step in enumerate(result.proof_steps, 1):
     print(f"{i}. {step.tactic} (success: {step.success})")
+```
+
+### Understanding Proof Validation Status
+
+When a proof fails, you can get detailed feedback about which steps were valid:
+
+```python
+result = agent.generate_proof(theorem, verbose=True)
+
+if not result.success:
+    # Get human-readable summary
+    print(result.get_proof_status_summary())
+    
+    # Shows:
+    # - Total number of valid vs invalid steps
+    # - List of valid steps that were applied
+    # - First invalid step and why it failed
+    
+    # Check if partial proof with 'sorry' was generated
+    if result.complete_proof:
+        print("\nPartial proof with 'sorry':")
+        print(result.complete_proof)
+```
+
+### Disabling 'sorry' on Timeout
+
+If you don't want the agent to generate proofs with 'sorry' when max iterations is reached:
+
+```python
+config = Config(
+    llm_provider="ollama",
+    use_sorry_on_timeout=False
+)
+
+agent = Lean4Agent(config)
+result = agent.generate_proof(theorem)
+
+# If proof fails, result.complete_proof will be None instead of containing 'sorry'
 ```
 
 ### Verifying Existing Proofs
@@ -216,9 +287,11 @@ config = Config(
     ollama_model: str = "bfs-prover-v2:32b",
     openai_api_key: Optional[str] = None,
     openai_model: str = "gpt-4",
+    openai_base_url: Optional[str] = None,
     max_iterations: int = 50,
     temperature: float = 0.7,
-    timeout: int = 30
+    timeout: int = 30,
+    use_sorry_on_timeout: bool = True
 )
 ```
 
@@ -236,13 +309,15 @@ Result object from proof generation.
 - `success: bool` - Whether proof was completed
 - `theorem: str` - The theorem statement
 - `proof_steps: List[ProofStep]` - All proof steps attempted
-- `complete_proof: Optional[str]` - Complete proof code if successful
+- `complete_proof: Optional[str]` - Complete proof code (may contain 'sorry' on timeout)
 - `error: Optional[str]` - Error message if failed
 - `iterations: int` - Number of iterations used
+- `valid_steps_count: int` - Number of valid steps before failure
 
 **Methods:**
 
 - `get_proof_code() -> str` - Get complete Lean 4 proof code
+- `get_proof_status_summary() -> str` - Get detailed summary of proof validation status
 
 ## Requirements
 
