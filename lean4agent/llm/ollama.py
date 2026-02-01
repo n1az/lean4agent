@@ -68,7 +68,7 @@ class OllamaInterface(LLMInterface):
             response.raise_for_status()
             result = response.json()
             return result.get("response", "")
-        except requests.RequestException as e:
+        except Exception as e:
             raise Exception(f"Ollama API call failed: {str(e)}")
     
     def generate_proof_step(
