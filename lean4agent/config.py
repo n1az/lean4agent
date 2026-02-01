@@ -1,4 +1,5 @@
 """Configuration management for Lean4Agent."""
+
 import os
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -7,7 +8,7 @@ from dotenv import load_dotenv
 
 class Config(BaseModel):
     """Configuration for Lean4Agent.
-    
+
     Attributes:
         llm_provider: LLM provider to use ('ollama' or 'openai')
         ollama_url: URL for Ollama API (default: http://localhost:11434)
@@ -21,33 +22,37 @@ class Config(BaseModel):
         timeout: Timeout in seconds for API calls (default: 30)
         use_sorry_on_timeout: Whether to generate 'sorry' when max iterations reached (default: True)
     """
-    
+
     llm_provider: str = Field(default="ollama", description="LLM provider: 'ollama' or 'openai'")
     ollama_url: str = Field(default="http://localhost:11434", description="Ollama API URL")
     ollama_model: str = Field(default="bfs-prover-v2:32b", description="Ollama model name")
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     openai_model: str = Field(default="gpt-4", description="OpenAI model name")
-    openai_base_url: Optional[str] = Field(default=None, description="OpenAI API base URL (for OpenAI-compatible APIs)")
+    openai_base_url: Optional[str] = Field(
+        default=None, description="OpenAI API base URL (for OpenAI-compatible APIs)"
+    )
     lean_server_url: Optional[str] = Field(default=None, description="Lean 4 server URL")
     max_iterations: int = Field(default=50, description="Maximum proof generation iterations")
     temperature: float = Field(default=0.7, description="LLM temperature")
     timeout: int = Field(default=30, description="API timeout in seconds")
-    use_sorry_on_timeout: bool = Field(default=True, description="Use 'sorry' when max iterations reached")
-    
+    use_sorry_on_timeout: bool = Field(
+        default=True, description="Use 'sorry' when max iterations reached"
+    )
+
     @classmethod
     def from_env(cls, **kwargs) -> "Config":
         """Create configuration from environment variables.
-        
+
         Loads .env file if present and reads environment variables.
         Additional kwargs can override environment variables.
-        
+
         Returns:
             Config instance
         """
         load_dotenv()
-        
+
         config_dict = {}
-        
+
         # Load from environment variables
         if os.getenv("LLM_PROVIDER"):
             config_dict["llm_provider"] = os.getenv("LLM_PROVIDER")
@@ -70,27 +75,31 @@ class Config(BaseModel):
         if os.getenv("TIMEOUT"):
             config_dict["timeout"] = int(os.getenv("TIMEOUT"))
         if os.getenv("USE_SORRY_ON_TIMEOUT"):
-            config_dict["use_sorry_on_timeout"] = os.getenv("USE_SORRY_ON_TIMEOUT").lower() in ("true", "1", "yes")
-        
+            config_dict["use_sorry_on_timeout"] = os.getenv("USE_SORRY_ON_TIMEOUT").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+
         # Override with kwargs
         config_dict.update(kwargs)
-        
+
         return cls(**config_dict)
-    
+
     def validate_config(self) -> None:
         """Validate configuration settings.
-        
+
         Raises:
             ValueError: If configuration is invalid
         """
         if self.llm_provider not in ["ollama", "openai"]:
             raise ValueError(f"Invalid LLM provider: {self.llm_provider}")
-        
+
         if self.llm_provider == "openai" and not self.openai_api_key:
             raise ValueError("OpenAI API key is required when using 'openai' provider")
-        
+
         if self.max_iterations < 1:
             raise ValueError("max_iterations must be at least 1")
-        
+
         if self.temperature < 0 or self.temperature > 2:
             raise ValueError("temperature must be between 0 and 2")
