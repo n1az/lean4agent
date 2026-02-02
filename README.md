@@ -50,8 +50,12 @@ pip install -e ".[dev]"
 ```python
 from lean4agent import Lean4Agent, Config
 
-# Create agent with default configuration
-agent = Lean4Agent()
+# Create agent with explicit model configuration
+config = Config(
+    llm_provider="ollama",
+    ollama_model="bfs-prover-v2:32b"  # Model name is required
+)
+agent = Lean4Agent(config)
 
 # Define a theorem to prove
 theorem = "example_theorem (a b : Nat) : a + b = b + a"
@@ -75,7 +79,7 @@ from lean4agent import Lean4Agent, Config
 config = Config(
     llm_provider="openai",
     openai_api_key="your-api-key",
-    openai_model="gpt-4"
+    openai_model="gpt-4"  # Model name is required
 )
 
 agent = Lean4Agent(config)
@@ -141,9 +145,9 @@ agent = Lean4Agent(config)
 |-----------|-------------|---------|
 | `llm_provider` | LLM provider: 'ollama' or 'openai' | `'ollama'` |
 | `ollama_url` | Ollama API URL | `'http://localhost:11434'` |
-| `ollama_model` | Ollama model name | `'bfs-prover-v2:32b'` |
+| `ollama_model` | Ollama model name (required when using ollama) | `None` (must be specified) |
 | `openai_api_key` | OpenAI API key | `None` |
-| `openai_model` | OpenAI model name | `'gpt-4'` |
+| `openai_model` | OpenAI model name (required when using openai) | `None` (must be specified) |
 | `openai_base_url` | OpenAI API base URL (for compatible APIs) | `None` |
 | `max_iterations` | Maximum proof generation iterations | `50` |
 | `temperature` | LLM generation temperature | `0.7` |

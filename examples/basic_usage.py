@@ -1,13 +1,17 @@
 """Basic example of using Lean4Agent with Ollama."""
 from lean4agent import Lean4Agent, Config
 
-# Example 1: Using default configuration (Ollama with BFS-Prover-V2)
-def example_with_defaults():
-    """Example using default Ollama configuration."""
-    print("=== Example 1: Using Ollama (default) ===\n")
+# Example 1: Explicit model configuration (recommended)
+def example_with_explicit_config():
+    """Example with explicit model configuration."""
+    print("=== Example 1: Explicit Configuration (Recommended) ===\n")
     
-    # Create agent with default config (reads from .env if present)
-    agent = Lean4Agent()
+    # Create agent with explicit model name
+    config = Config(
+        llm_provider="ollama",
+        ollama_model="bfs-prover-v2:32b"  # Must specify model name
+    )
+    agent = Lean4Agent(config)
     
     # Simple theorem to prove
     theorem = "example_add : 2 + 2 = 4"
@@ -23,16 +27,16 @@ def example_with_defaults():
         print(f"\n✗ Proof generation failed: {result.error}")
 
 
-# Example 2: Custom configuration
+# Example 2: Custom configuration with different model
 def example_with_custom_config():
     """Example with custom configuration."""
-    print("\n\n=== Example 2: Custom configuration ===\n")
+    print("\n\n=== Example 2: Custom Configuration ===\n")
     
     # Create custom config
     config = Config(
         llm_provider="ollama",
         ollama_url="http://localhost:11434",
-        ollama_model="bfs-prover-v2:32b",
+        ollama_model="bfs-prover-v2:32b",  # Specify your model
         max_iterations=30,
         temperature=0.7
     )
@@ -57,7 +61,7 @@ def example_with_env():
     """Example using .env file configuration."""
     print("\n\n=== Example 3: Using .env configuration ===\n")
     
-    # This will read from .env file
+    # This will read from .env file (must include OLLAMA_MODEL)
     config = Config.from_env()
     agent = Lean4Agent(config)
     
@@ -75,7 +79,7 @@ if __name__ == "__main__":
     
     # Run example 1
     try:
-        example_with_defaults()
+        example_with_explicit_config()
     except Exception as e:
         print(f"Example 1 failed: {e}")
     

@@ -12,22 +12,23 @@ class Config(BaseModel):
     Attributes:
         llm_provider: LLM provider to use ('ollama' or 'openai')
         ollama_url: URL for Ollama API (default: http://localhost:11434)
-        ollama_model: Model name for Ollama (default: bfs-prover-v2:32b)
+        ollama_model: Model name for Ollama (required when using ollama)
         openai_api_key: OpenAI API key (optional, can be set via OPENAI_API_KEY env var)
-        openai_model: OpenAI model name (default: gpt-4)
+        openai_model: OpenAI model name (required when using openai)
         openai_base_url: Base URL for OpenAI API (optional, allows using OpenAI-compatible APIs)
         lean_server_url: URL for Lean 4 server (optional)
         max_iterations: Maximum number of proof generation iterations (default: 50)
         temperature: Temperature for LLM generation (default: 0.7)
         timeout: Timeout in seconds for API calls (default: 30)
         use_sorry_on_timeout: Whether to generate 'sorry' when max iterations reached (default: True)
+        use_repl: Whether to use persistent Lean REPL for better performance (default: True)
     """
 
     llm_provider: str = Field(default="ollama", description="LLM provider: 'ollama' or 'openai'")
     ollama_url: str = Field(default="http://localhost:11434", description="Ollama API URL")
-    ollama_model: str = Field(default="bfs-prover-v2:32b", description="Ollama model name")
+    ollama_model: Optional[str] = Field(default=None, description="Ollama model name (required when using ollama)")
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-    openai_model: str = Field(default="gpt-4", description="OpenAI model name")
+    openai_model: Optional[str] = Field(default=None, description="OpenAI model name (required when using openai)")
     openai_base_url: Optional[str] = Field(
         default=None, description="OpenAI API base URL (for OpenAI-compatible APIs)"
     )
@@ -104,8 +105,15 @@ class Config(BaseModel):
         if self.llm_provider not in ["ollama", "openai"]:
             raise ValueError(f"Invalid LLM provider: {self.llm_provider}")
 
-        if self.llm_provider == "openai" and not self.openai_api_key:
-            raise ValueError("OpenAI API key is required when using 'openai' provider")
+        if self.llm_provider == "openai":
+            if not self.openai_api_key:
+                raise ValueError("OpenAI API key is required when using 'openai' provider")
+            if not self.openai_model:
+                raise ValueError("OpenAI model name is required when using 'openai' provider")
+        
+        if self.llm_provider == "ollama":
+            if not self.ollama_model:
+                raise ValueError("Ollama model name is required when using 'ollama' provider")
 
         if self.max_iterations < 1:
             raise ValueError("max_iterations must be at least 1")
