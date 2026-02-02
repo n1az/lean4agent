@@ -148,7 +148,8 @@ class LeanLSPClient:
                 error_parts = []
                 for diag in diagnostics:
                     if diag.severity == lsp_types.DiagnosticSeverity.Error:
-                        error_parts.append(diag.message)
+                        # Ensure message is a string (it could be a complex type)
+                        error_parts.append(str(diag.message))
                 error_msg = "\n".join(error_parts)
             
             return {

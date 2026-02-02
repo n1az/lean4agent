@@ -103,15 +103,17 @@ class LeanREPL:
                 - error: Optional[str]
                 - output: str
         """
-        # Write code to file
-        self.lean_file.write_text(code)
+        # Write code to file with explicit UTF-8 encoding
+        self.lean_file.write_text(code, encoding='utf-8')
         
         try:
-            # Run lean on the file
+            # Run lean on the file with UTF-8 encoding
             result = subprocess.run(
                 [self.lean_executable, str(self.lean_file)],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',  # Replace any encoding errors with placeholder
                 timeout=timeout
             )
             

@@ -65,7 +65,12 @@ class LeanClient:
         """
         try:
             result = subprocess.run(
-                [self.lean_executable, "--version"], capture_output=True, text=True, timeout=5
+                [self.lean_executable, "--version"], 
+                capture_output=True, 
+                text=True, 
+                encoding='utf-8',
+                errors='replace',
+                timeout=5
             )
             if result.returncode != 0:
                 raise RuntimeError("Lean executable found but returned error")
@@ -126,13 +131,18 @@ class LeanClient:
             return self.repl.check_proof(code)
             
         # Fall back to subprocess method
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".lean", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".lean", delete=False, encoding='utf-8') as f:
             f.write(code)
             temp_file = f.name
 
         try:
             result = subprocess.run(
-                [self.lean_executable, temp_file], capture_output=True, text=True, timeout=30
+                [self.lean_executable, temp_file], 
+                capture_output=True, 
+                text=True, 
+                encoding='utf-8',
+                errors='replace',
+                timeout=30
             )
 
             success = result.returncode == 0
