@@ -12,8 +12,8 @@ Lean4Agent is a Python toolkit that leverages Large Language Models (LLMs) to au
 - ⚙️ **Easy Configuration**: Simple setup with environment variables or configuration objects
 - 📦 **Pip Installable**: Install as a package and use in your projects
 - 🔍 **Proof Verification**: Built-in Lean 4 integration for verifying proofs
-- ⚡ **LSP Mode**: Language Server Protocol support for 10-80x faster proof checking
-- 🚀 **High Performance**: Multiple verification modes (subprocess, REPL, LSP)
+- ⚡ **Kimina Mode**: Server-based verification for high-throughput batch processing
+- 🚀 **High Performance**: Multiple verification modes (REPL, Kimina)
 
 ## Installation
 
@@ -114,18 +114,20 @@ agent = Lean4Agent(config)
 result = agent.generate_proof(theorem, verbose=True)
 ```
 
-### Using LSP Mode (Fastest - Experimental)
+### Using Kimina Mode (High Performance)
 
-For maximum performance, enable LSP mode for 10-80x faster tactic checking:
+For maximum performance and batch verification, use kimina-lean-server:
 
 ```python
 from lean4agent import Lean4Agent, Config
 
-# Configure with LSP enabled
+# Start kimina server first:
+# docker run -d -p 80:80 projectnumina/kimina-lean-server:2.0.0
+
 config = Config(
     llm_provider="ollama",
     ollama_model="bfs-prover-v2:32b",
-    use_lsp=True  # Enable LSP for best performance
+    use_kimina=True  # Uses http://localhost:80 by default
 )
 
 agent = Lean4Agent(config)
@@ -133,9 +135,8 @@ result = agent.generate_proof(theorem, verbose=True)
 ```
 
 **Performance Comparison:**
-- Subprocess mode: ~300-2400ms per tactic
-- REPL mode: ~200-2000ms per tactic (10-20% faster)
-- LSP mode: ~15-30ms per tactic (10-80x faster!)
+- REPL mode: Local Lean process, good for development
+- Kimina mode: Server-based, ideal for batch verification at scale
 
 ### Using Environment Variables
 
@@ -178,7 +179,8 @@ agent = Lean4Agent(config)
 | `timeout` | API request timeout (seconds) | `30` |
 | `use_sorry_on_timeout` | Add 'sorry' when max iterations reached | `True` |
 | `use_repl` | Use persistent Lean REPL for better performance | `True` |
-| `use_lsp` | Use LSP server for best performance (experimental) | `False` |
+| `use_kimina` | Use kimina-lean-server for batch verification | `False` |
+| `kimina_url` | URL for kimina-lean-server | `'http://localhost:80'` |
 
 ## Advanced Usage
 
@@ -278,7 +280,7 @@ python examples/openai_example.py
 ## How It Works
 
 1. **Initialize**: Agent is configured with LLM provider and Lean 4 client
-2. **Start Connection**: Choose verification mode (subprocess, REPL, or LSP)
+2. **Start Connection**: Choose verification mode (REPL or Kimina)
 3. **Generate Tactic**: LLM generates the next proof step based on current state
 4. **Apply & Verify**: Tactic is applied in Lean 4 and verified incrementally
 5. **Iterate**: Process repeats until proof is complete or max iterations reached
@@ -286,27 +288,24 @@ python examples/openai_example.py
 
 ### Verification Modes
 
-Lean4Agent supports three verification modes with different performance characteristics:
+Lean4Agent supports two verification modes with different performance characteristics:
 
 | Mode | Speed | Setup | Best For |
 |------|-------|-------|----------|
-| **Subprocess** | Baseline | Simple | Single proofs, basic usage |
-| **REPL** | +10-20% | Default | Multiple proofs, production |
-| **LSP** | +10-80x | Experimental | High throughput, research |
+| **REPL** | Good | Default | Development, single proofs |
+| **Kimina** | Best | Server | Batch verification, research |
 
-**LSP Mode** uses the Language Server Protocol for persistent communication with Lean,
-eliminating process spawning overhead and providing near-native performance.
+**Kimina Mode** uses kimina-lean-server for high-throughput batch verification,
+ideal for processing thousands of proofs.
 
 ### Performance Optimizations
 
-Lean4Agent v3.0 (LSP branch) includes major performance improvements:
+Lean4Agent includes performance optimizations:
 
-- **LSP Support**: Language Server Protocol integration for 10-80x speedup
+- **Kimina Support**: Server-based verification for batch processing at scale
 - **Optimized File Handling**: Reuses temporary files to reduce I/O overhead
 - **Batch Checking**: Supports checking multiple candidate tactics efficiently
-- **Multiple Modes**: Choose between subprocess, REPL, or LSP based on your needs
-
-See [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md) for details.
+- **Multiple Modes**: Choose between REPL or Kimina based on your needs
 
 ### Comparison with llmlean
 
@@ -314,8 +313,6 @@ Lean4Agent provides similar functionality to llmlean but as a Python library:
 
 - **llmlean**: Native Lean integration, used within Lean files via `llmstep` and `llmqed` tactics
 - **lean4agent**: Python API for programmatic proof generation and automation
-
-See [COMPARISON_WITH_LLMLEAN.md](COMPARISON_WITH_LLMLEAN.md) for detailed comparison.
 
 ### BFS-Prover-V2 Integration
 

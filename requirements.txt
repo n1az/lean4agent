@@ -1,5 +1,4 @@
 requests>=2.28.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
-pygls>=1.0.0
-lsprotocol>=2023.0.0
+lean-repl-py>=0.1.13

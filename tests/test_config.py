@@ -11,8 +11,8 @@ def test_config_defaults():
 
     assert config.llm_provider == "ollama"
     assert config.ollama_url == "http://localhost:11434"
-    assert config.ollama_model == "bfs-prover-v2:32b"
-    assert config.openai_model == "gpt-4"
+    assert config.ollama_model is None  # No default model
+    assert config.openai_model is None  # No default model
     assert config.max_iterations == 50
     assert config.temperature == 0.7
     assert config.timeout == 30
@@ -48,7 +48,7 @@ def test_config_validation_missing_openai_key():
 
 def test_config_validation_invalid_iterations():
     """Test validation with invalid max_iterations."""
-    config = Config(max_iterations=0)
+    config = Config(ollama_model="test-model", max_iterations=0)
 
     with pytest.raises(ValueError, match="max_iterations must be at least 1"):
         config.validate_config()
@@ -56,7 +56,7 @@ def test_config_validation_invalid_iterations():
 
 def test_config_validation_invalid_temperature():
     """Test validation with invalid temperature."""
-    config = Config(temperature=3.0)
+    config = Config(ollama_model="test-model", temperature=3.0)
 
     with pytest.raises(ValueError, match="temperature must be between 0 and 2"):
         config.validate_config()

@@ -2,6 +2,7 @@
 
 import os
 from typing import Optional
+from pathlib import Path
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -11,17 +12,16 @@ class Config(BaseModel):
 
     Attributes:
         llm_provider: LLM provider to use ('ollama' or 'openai')
-        ollama_url: URL for Ollama API (default: http://localhost:11434)
+        ollama_url: URL for Ollama API
         ollama_model: Model name for Ollama (required when using ollama)
-        openai_api_key: OpenAI API key (optional, can be set via OPENAI_API_KEY env var)
+        openai_api_key: OpenAI API key
         openai_model: OpenAI model name (required when using openai)
-        openai_base_url: Base URL for OpenAI API (optional, allows using OpenAI-compatible APIs)
-        lean_server_url: URL for Lean 4 server (optional)
-        max_iterations: Maximum number of proof generation iterations (default: 50)
-        temperature: Temperature for LLM generation (default: 0.7)
-        timeout: Timeout in seconds for API calls (default: 30)
-        use_sorry_on_timeout: Whether to generate 'sorry' when max iterations reached (default: True)
-        use_repl: Whether to use persistent Lean REPL for better performance (default: True)
+        openai_base_url: Base URL for OpenAI API (for OpenAI-compatible APIs)
+        lean_project_path: Path to Lean project for dependencies (e.g., mathlib)
+        max_iterations: Maximum number of proof generation iterations
+        temperature: Temperature for LLM generation
+        timeout: Timeout in seconds for API calls
+        use_sorry_on_timeout: Whether to generate 'sorry' when max iterations reached
     """
 
     llm_provider: str = Field(default="ollama", description="LLM provider: 'ollama' or 'openai'")
@@ -32,18 +32,14 @@ class Config(BaseModel):
     openai_base_url: Optional[str] = Field(
         default=None, description="OpenAI API base URL (for OpenAI-compatible APIs)"
     )
-    lean_server_url: Optional[str] = Field(default=None, description="Lean 4 server URL")
+    lean_project_path: Optional[Path] = Field(
+        default=None, description="Path to Lean project for dependencies (e.g., mathlib)"
+    )
     max_iterations: int = Field(default=50, description="Maximum proof generation iterations")
     temperature: float = Field(default=0.7, description="LLM temperature")
     timeout: int = Field(default=30, description="API timeout in seconds")
     use_sorry_on_timeout: bool = Field(
         default=True, description="Use 'sorry' when max iterations reached"
-    )
-    use_repl: bool = Field(
-        default=True, description="Use persistent Lean REPL for better performance"
-    )
-    use_lsp: bool = Field(
-        default=False, description="Use LSP server for best performance (experimental)"
     )
 
     @classmethod
@@ -73,8 +69,8 @@ class Config(BaseModel):
             config_dict["openai_model"] = os.getenv("OPENAI_MODEL")
         if os.getenv("OPENAI_BASE_URL"):
             config_dict["openai_base_url"] = os.getenv("OPENAI_BASE_URL")
-        if os.getenv("LEAN_SERVER_URL"):
-            config_dict["lean_server_url"] = os.getenv("LEAN_SERVER_URL")
+        if os.getenv("LEAN_PROJECT_PATH"):
+            config_dict["lean_project_path"] = Path(os.getenv("LEAN_PROJECT_PATH"))
         if os.getenv("MAX_ITERATIONS"):
             config_dict["max_iterations"] = int(os.getenv("MAX_ITERATIONS"))
         if os.getenv("TEMPERATURE"):
@@ -83,18 +79,6 @@ class Config(BaseModel):
             config_dict["timeout"] = int(os.getenv("TIMEOUT"))
         if os.getenv("USE_SORRY_ON_TIMEOUT"):
             config_dict["use_sorry_on_timeout"] = os.getenv("USE_SORRY_ON_TIMEOUT").lower() in (
-                "true",
-                "1",
-                "yes",
-            )
-        if os.getenv("USE_REPL"):
-            config_dict["use_repl"] = os.getenv("USE_REPL").lower() in (
-                "true",
-                "1",
-                "yes",
-            )
-        if os.getenv("USE_LSP"):
-            config_dict["use_lsp"] = os.getenv("USE_LSP").lower() in (
                 "true",
                 "1",
                 "yes",
@@ -127,5 +111,5 @@ class Config(BaseModel):
         if self.max_iterations < 1:
             raise ValueError("max_iterations must be at least 1")
 
-        if self.temperature < 0 or self.temperature > 2:
+        if not (0 <= self.temperature <= 2):
             raise ValueError("temperature must be between 0 and 2")

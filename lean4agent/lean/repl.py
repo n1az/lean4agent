@@ -1,65 +1,62 @@
-"""Persistent Lean REPL for improved performance.
+"""Lean REPL interface using lean-repl-py for proof verification.
 
-This module provides a persistent Lean process that can handle multiple
-tactic checks without the overhead of process spawning.
-
-Note: The current implementation still uses temporary files and subprocess.run()
-for each check, which doesn't provide the full benefits of a persistent REPL.
-A future version could use Lean's server mode or LSP for true persistence.
+This module provides a persistent Lean REPL that handles multiple tactic checks
+without process spawning or temp file overhead, using lean-repl-py.
 """
 
-import subprocess
-import tempfile
+import sys
 import os
-import json
-import re
 from typing import Optional, Dict, Any, List
 from pathlib import Path
+from lean_repl_py import LeanREPLHandler, LeanREPLEnvironment
+
+# Ensure UTF-8 encoding for all platforms (subprocess pipe communication)
+# This is needed because lean-repl-py uses subprocess.Popen with text=True,
+# which defaults to system encoding (cp1252 on Windows, varies on Linux/Mac)
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+os.environ['PYTHONUTF8'] = '1'
+
+# Reconfigure standard streams to UTF-8
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+if hasattr(sys.stdin, 'reconfigure'):
+    sys.stdin.reconfigure(encoding='utf-8')
 
 
 class LeanREPL:
-    """A manager for Lean verification with optimized file handling.
+    """Manager for Lean verification using lean-repl-py REPL interface.
     
-    This class optimizes Lean verification by reusing a temporary directory
-    and file across multiple checks, reducing file I/O overhead.
-    
-    Note: While called "REPL", this implementation still spawns a new Lean
-    process for each check. Future versions could implement true process
-    persistence using Lean's server mode or LSP.
+    Provides persistent Lean process communication via stdin/stdout with no temp files.
     """
     
-    def __init__(self, lean_executable: str = "lean"):
-        """Initialize the REPL.
+    def __init__(self, project_path: Optional[Path] = None):
+        """Initialize the Lean REPL.
         
         Args:
-            lean_executable: Path to lean executable
+            project_path: Path to Lean project for dependencies (e.g., mathlib).
+                         If None, uses standalone Lean with no external dependencies.
         """
-        self.lean_executable = lean_executable
-        self.temp_dir: Optional[Path] = None
-        self.lean_file: Optional[Path] = None
+        self.project_path = project_path
+        self.lean_repl_handler: Optional[LeanREPLHandler] = None
+        self._current_env: Optional[int] = None
         
     def start(self) -> None:
-        """Initialize the temporary directory for Lean file reuse.
+        """Initialize the Lean REPL handler.
         
-        Note: Does not start a persistent process yet, just sets up
-        the temporary directory to reduce file I/O overhead.
+        UTF-8 encoding is already set at module level to ensure proper
+        subprocess communication for all platforms.
         """
-        # Create a temporary directory for the Lean file
-        self.temp_dir = Path(tempfile.mkdtemp())
-        self.lean_file = self.temp_dir / "check.lean"
-        
-        # Initialize with empty file
-        self.lean_file.write_text("")
+        if self.project_path:
+            self.lean_repl_handler = LeanREPLHandler(project_path=self.project_path)
+        else:
+            self.lean_repl_handler = LeanREPLHandler()
+        self._current_env = None
         
     def stop(self) -> None:
-        """Clean up temporary resources."""
-        if self.temp_dir and self.temp_dir.exists():
-            try:
-                if self.lean_file and self.lean_file.exists():
-                    self.lean_file.unlink()
-                self.temp_dir.rmdir()
-            except OSError:
-                pass
+        """Clean up REPL resources."""
+        self.lean_repl_handler = None
+        self._current_env = None
                 
     def __enter__(self):
         """Context manager entry."""
@@ -95,7 +92,7 @@ class LeanREPL:
         
         Args:
             code: Complete Lean 4 code to verify
-            timeout: Timeout in seconds
+            timeout: Timeout in seconds (unused, kept for API compatibility)
             
         Returns:
             Dictionary with verification results:
@@ -103,32 +100,70 @@ class LeanREPL:
                 - error: Optional[str]
                 - output: str
         """
-        # Write code to file with explicit UTF-8 encoding
-        self.lean_file.write_text(code, encoding='utf-8')
+        if not self.lean_repl_handler:
+            return {
+                "success": False,
+                "error": "REPL handler not initialized",
+                "output": ""
+            }
         
         try:
-            # Run lean on the file with UTF-8 encoding
-            result = subprocess.run(
-                [self.lean_executable, str(self.lean_file)],
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',  # Replace any encoding errors with placeholder
-                timeout=timeout
-            )
+            # Set environment if we have one
+            if self._current_env is not None:
+                self.lean_repl_handler.env = self._current_env
             
-            success = result.returncode == 0
-            error = None if success else result.stderr
+            # Send command to Lean REPL
+            self.lean_repl_handler.send_command(code)
+            response, env = self.lean_repl_handler.receive_json()
+            
+            # Update environment for next command
+            if hasattr(env, 'env_index'):
+                self._current_env = env.env_index
+            
+            # Parse response for errors
+            has_error = False
+            error_msg = ""
+            
+            # Check messages for errors
+            if 'messages' in response and response['messages']:
+                for msg in response['messages']:
+                    if hasattr(msg, 'severity') and msg.severity == 'error':
+                        has_error = True
+                        error_msg += f"{msg.message}\n" if hasattr(msg, 'message') else str(msg)
+            
+            # Check for sorry
+            if 'sorries' in response and response['sorries']:
+                has_error = True
+                error_msg += "declaration uses 'sorry'\n"
+            
+            # Check proof state (unsolved goals)
+            if 'proofState' in response and response['proofState']:
+                proof_states = response['proofState']
+                if proof_states and not has_error:
+                    # Unsolved goals without other errors means partial success
+                    error_msg += "unsolved goals\n"
+                    for ps in proof_states:
+                        if hasattr(ps, 'goal'):
+                            error_msg += f"{ps.goal}\n"
+            
+            success = not has_error
             
             return {
                 "success": success,
-                "error": error,
-                "output": result.stdout + result.stderr
+                "error": error_msg.strip() if error_msg else None,
+                "output": str(response)
             }
-        except subprocess.TimeoutExpired:
+                
+        except UnicodeEncodeError as e:
             return {
                 "success": False,
-                "error": "Lean verification timed out",
+                "error": f"Unicode encoding error (Windows UTF-8 issue): {e}. Try setting PYTHONIOENCODING=utf-8",
+                "output": ""
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"REPL communication error: {e}",
                 "output": ""
             }
             
@@ -139,10 +174,13 @@ class LeanREPL:
         new_tactic: str,
         timeout: int = 30
     ) -> Dict[str, Any]:
-        """Check a new tactic incrementally.
+        """Check a new tactic incrementally without redeclaring the theorem.
+        
+        This creates a fresh REPL environment for each check to avoid 
+        "already declared" errors, while keeping the original theorem name.
         
         Args:
-            theorem: The theorem statement
+            theorem: The theorem statement (original name preserved)
             current_tactics: List of tactics already applied
             new_tactic: New tactic to check
             timeout: Timeout in seconds
@@ -154,14 +192,14 @@ class LeanREPL:
                 - error: Optional[str]
                 - complete: bool
         """
-        # Build proof code using helper
-        code = self._build_theorem_code(theorem, current_tactics + [new_tactic])
+        # Reset environment to start fresh (avoids "already declared" errors)
+        self._current_env = None
         
-        # Check the proof
+        # Build proof with current tactics + new tactic
+        code = self._build_theorem_code(theorem, current_tactics + [new_tactic])
         result = self.check_proof(code, timeout)
         
         if result["success"]:
-            # Proof is complete
             return {
                 "success": True,
                 "state": "Proof complete",
@@ -171,8 +209,25 @@ class LeanREPL:
         else:
             error_msg = result.get("error", "")
             
-            # Check if it's partial success (unsolved goals)
-            if "unsolved goals" in error_msg.lower() or "goals" in error_msg.lower():
+            # Check if there are actual errors (not just unsolved goals)
+            has_real_error = False
+            if error_msg:
+                # Real errors: unknown tactic, type mismatch, etc.
+                real_error_indicators = [
+                    "unknown tactic",
+                    "unknown identifier",
+                    "type mismatch",
+                    "has already been declared",
+                    "expected type",
+                    "failed to synthesize"
+                ]
+                for indicator in real_error_indicators:
+                    if indicator in error_msg.lower():
+                        has_real_error = True
+                        break
+            
+            # If only "unsolved goals" (no real errors), tactic is valid but proof incomplete
+            if "unsolved goals" in error_msg.lower() and not has_real_error:
                 state = self._extract_goal_state(error_msg)
                 return {
                     "success": True,
@@ -181,10 +236,10 @@ class LeanREPL:
                     "complete": False
                 }
             else:
-                # Tactic failed
+                # Real error - tactic is invalid
                 return {
                     "success": False,
-                    "state": self._extract_goal_state(error_msg) if error_msg else "Unknown state",
+                    "state": error_msg,  # Keep original goal, not error
                     "error": error_msg,
                     "complete": False
                 }
@@ -196,10 +251,7 @@ class LeanREPL:
         candidate_tactics: List[str],
         timeout: int = 30
     ) -> List[Dict[str, Any]]:
-        """Check multiple tactics in batch and return results for all.
-        
-        This is useful when you have multiple LLM-generated tactics and want
-        to check which ones are valid.
+        """Check multiple tactics in batch.
         
         Args:
             theorem: The theorem statement
@@ -208,12 +260,7 @@ class LeanREPL:
             timeout: Timeout in seconds
             
         Returns:
-            List of dictionaries, one for each candidate tactic, with:
-                - success: bool
-                - state: str
-                - error: Optional[str]
-                - complete: bool
-                - tactic: str (the checked tactic)
+            List of dictionaries with results for each tactic
         """
         results = []
         

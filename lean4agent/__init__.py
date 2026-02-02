@@ -2,7 +2,7 @@
 
 __version__ = "0.1.0"
 
-from lean4agent.agent import Lean4Agent
+from lean4agent.agent import Lean4Agent, ProofResult, ProofStep, CheckResult
 from lean4agent.config import Config
 
-__all__ = ["Lean4Agent", "Config"]
+__all__ = ["Lean4Agent", "Config", "ProofResult", "ProofStep", "CheckResult"]
