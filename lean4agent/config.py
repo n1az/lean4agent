@@ -38,6 +38,9 @@ class Config(BaseModel):
     use_sorry_on_timeout: bool = Field(
         default=True, description="Use 'sorry' when max iterations reached"
     )
+    use_repl: bool = Field(
+        default=True, description="Use persistent Lean REPL for better performance"
+    )
 
     @classmethod
     def from_env(cls, **kwargs) -> "Config":
@@ -76,6 +79,12 @@ class Config(BaseModel):
             config_dict["timeout"] = int(os.getenv("TIMEOUT"))
         if os.getenv("USE_SORRY_ON_TIMEOUT"):
             config_dict["use_sorry_on_timeout"] = os.getenv("USE_SORRY_ON_TIMEOUT").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+        if os.getenv("USE_REPL"):
+            config_dict["use_repl"] = os.getenv("USE_REPL").lower() in (
                 "true",
                 "1",
                 "yes",

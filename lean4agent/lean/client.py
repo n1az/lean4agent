@@ -5,6 +5,7 @@ import tempfile
 import os
 from typing import Optional, Dict, Any, List
 from pathlib import Path
+from .repl import LeanREPL
 
 
 class LeanClient:
@@ -13,14 +14,22 @@ class LeanClient:
     This client manages Lean 4 proof verification and state extraction.
     """
 
-    def __init__(self, lean_executable: str = "lean"):
+    def __init__(self, lean_executable: str = "lean", use_repl: bool = True):
         """Initialize Lean client.
 
         Args:
             lean_executable: Path to lean executable (default: 'lean')
+            use_repl: Whether to use persistent REPL for better performance (default: True)
         """
         self.lean_executable = lean_executable
+        self.use_repl = use_repl
+        self.repl: Optional[LeanREPL] = None
         self._verify_lean_installation()
+        
+        # Start REPL if enabled
+        if self.use_repl:
+            self.repl = LeanREPL(lean_executable)
+            self.repl.start()
 
     def _verify_lean_installation(self) -> None:
         """Verify that Lean 4 is installed.
@@ -38,6 +47,11 @@ class LeanClient:
             raise RuntimeError(
                 f"Lean 4 not found. Please install Lean 4 and ensure it's in PATH. Error: {e}"
             )
+            
+    def __del__(self):
+        """Cleanup REPL on deletion."""
+        if self.repl:
+            self.repl.stop()
 
     def verify_proof(self, code: str) -> Dict[str, Any]:
         """Verify a Lean 4 proof.
@@ -51,6 +65,11 @@ class LeanClient:
                 - error: Optional[str] - error message if failed
                 - output: str - full output from Lean
         """
+        # Use REPL if available
+        if self.repl:
+            return self.repl.check_proof(code)
+            
+        # Fall back to subprocess method
         with tempfile.NamedTemporaryFile(mode="w", suffix=".lean", delete=False) as f:
             f.write(code)
             temp_file = f.name
@@ -90,6 +109,30 @@ class LeanClient:
                 - error: Optional[str] - error message if failed
                 - complete: bool - whether proof is complete
         """
+        # Use REPL if available for better performance
+        if self.repl:
+            result = self.repl.check_tactic_incremental(
+                theorem, current_proof, new_tactic
+            )
+            # Convert REPL result to expected format
+            if result["success"]:
+                return {
+                    "success": True,
+                    "proof": current_proof + [new_tactic],
+                    "state": result["state"],
+                    "error": None,
+                    "complete": result["complete"]
+                }
+            else:
+                return {
+                    "success": False,
+                    "proof": current_proof,
+                    "state": result["state"],
+                    "error": result["error"],
+                    "complete": False
+                }
+        
+        # Fall back to original implementation
         # Build the proof code
         proof_lines = current_proof + [new_tactic]
 
@@ -165,6 +208,67 @@ class LeanClient:
 
         # Return full error if we can't extract
         return error_output
+        
+    def check_tactics_batch(
+        self,
+        theorem: str,
+        current_proof: List[str],
+        candidate_tactics: List[str]
+    ) -> List[Dict[str, Any]]:
+        """Check multiple tactics in batch and return the first valid one.
+        
+        This is optimized for BFS-Prover models that generate multiple
+        candidate tactics. It checks them efficiently and returns results.
+        
+        Args:
+            theorem: The theorem statement
+            current_proof: List of tactics applied so far
+            candidate_tactics: List of candidate tactics to check
+            
+        Returns:
+            List of results for each tactic, with:
+                - success: bool
+                - proof: List[str]
+                - state: str
+                - error: Optional[str]
+                - complete: bool
+                - tactic: str
+        """
+        if self.repl:
+            # Use REPL batch checking for better performance
+            results = self.repl.check_tactics_batch(
+                theorem, current_proof, candidate_tactics
+            )
+            # Convert to expected format
+            converted_results = []
+            for result in results:
+                if result["success"]:
+                    converted_results.append({
+                        "success": True,
+                        "proof": current_proof + [result["tactic"]],
+                        "state": result["state"],
+                        "error": None,
+                        "complete": result["complete"],
+                        "tactic": result["tactic"]
+                    })
+                else:
+                    converted_results.append({
+                        "success": False,
+                        "proof": current_proof,
+                        "state": result["state"],
+                        "error": result["error"],
+                        "complete": False,
+                        "tactic": result["tactic"]
+                    })
+            return converted_results
+        
+        # Fall back to sequential checking
+        results = []
+        for tactic in candidate_tactics:
+            result = self.apply_tactic(theorem, current_proof, tactic)
+            result["tactic"] = tactic
+            results.append(result)
+        return results
 
     def get_initial_state(self, theorem: str) -> str:
         """Get the initial proof state for a theorem.

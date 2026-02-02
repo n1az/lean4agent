@@ -12,6 +12,7 @@ Lean4Agent is a Python toolkit that leverages Large Language Models (LLMs) to au
 - ⚙️ **Easy Configuration**: Simple setup with environment variables or configuration objects
 - 📦 **Pip Installable**: Install as a package and use in your projects
 - 🔍 **Proof Verification**: Built-in Lean 4 integration for verifying proofs
+- ⚡ **Performance Optimized**: Persistent REPL for fast tactic checking (1.7x speedup)
 
 ## Installation
 
@@ -148,6 +149,7 @@ agent = Lean4Agent(config)
 | `temperature` | LLM generation temperature | `0.7` |
 | `timeout` | API request timeout (seconds) | `30` |
 | `use_sorry_on_timeout` | Add 'sorry' when max iterations reached | `True` |
+| `use_repl` | Use persistent Lean REPL for better performance | `True` |
 
 ## Advanced Usage
 
@@ -247,10 +249,31 @@ python examples/openai_example.py
 ## How It Works
 
 1. **Initialize**: Agent is configured with LLM provider and Lean 4 client
-2. **Generate Tactic**: LLM generates the next proof step based on current state
-3. **Apply & Verify**: Tactic is applied in Lean 4 and verified
-4. **Iterate**: Process repeats until proof is complete or max iterations reached
-5. **Return Result**: Complete proof or error information is returned
+2. **Start REPL**: Persistent Lean process for fast tactic checking (optional, enabled by default)
+3. **Generate Tactic**: LLM generates the next proof step based on current state
+4. **Apply & Verify**: Tactic is applied in Lean 4 and verified incrementally
+5. **Iterate**: Process repeats until proof is complete or max iterations reached
+6. **Return Result**: Complete proof or error information is returned
+
+### Performance Optimizations
+
+Lean4Agent v2.0 includes significant performance improvements:
+
+- **Persistent REPL**: Keeps Lean process alive, eliminating 200-500ms process spawning overhead
+- **Incremental Verification**: Only checks new tactics, not the entire proof
+- **Batch Checking**: Supports checking multiple candidate tactics efficiently
+- **1.7x Speedup**: Multi-step proofs are ~1.7x faster than v1.0
+
+See [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md) for details.
+
+### Comparison with llmlean
+
+Lean4Agent provides similar functionality to llmlean but as a Python library:
+
+- **llmlean**: Native Lean integration, used within Lean files via `llmstep` and `llmqed` tactics
+- **lean4agent**: Python API for programmatic proof generation and automation
+
+See [COMPARISON_WITH_LLMLEAN.md](COMPARISON_WITH_LLMLEAN.md) for detailed comparison.
 
 ### BFS-Prover-V2 Integration
 

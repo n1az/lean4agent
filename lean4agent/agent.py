@@ -143,8 +143,8 @@ class Lean4Agent:
         # Initialize LLM interface
         self.llm = self._create_llm_interface()
 
-        # Initialize Lean client
-        self.lean_client = LeanClient()
+        # Initialize Lean client with REPL setting
+        self.lean_client = LeanClient(use_repl=self.config.use_repl)
 
     def _create_llm_interface(self) -> LLMInterface:
         """Create LLM interface based on configuration.
