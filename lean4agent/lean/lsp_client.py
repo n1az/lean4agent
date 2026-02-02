@@ -8,7 +8,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from pygls.client import JsonRpcClient
+from pygls.client import JsonRPCClient
 from lsprotocol import types as lsp_types
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ class LeanLSPClient:
             lean_executable: Path to lean executable (default: 'lean')
         """
         self.lean_executable = lean_executable
-        self.client: Optional[JsonRpcClient] = None
+        self.client: Optional[JsonRPCClient] = None
         self._initialized = False
         self._document_counter = 0
         self._virtual_documents: Dict[str, int] = {}
@@ -39,7 +39,7 @@ class LeanLSPClient:
             return
             
         # Create JSON-RPC client
-        self.client = JsonRpcClient()
+        self.client = JsonRPCClient()
         
         # Start Lean language server
         await self.client.start_io([self.lean_executable, "--server"])
