@@ -6,27 +6,88 @@ from lean4agent.llm import LLMInterface, OllamaInterface, OpenAIInterface
 from lean4agent.lean import LeanClient
 
 
+class CheckResult:
+    """Result of checking a tactic - similar to llmlean's CheckResult."""
+    
+    PROOF_DONE = "ProofDone"  # Tactic completes the proof
+    VALID = "Valid"           # Tactic is valid but proof not complete
+    INVALID = "Invalid"       # Tactic is invalid
+    
+    def __init__(self, status: str, tactic: str = "", state: str = "", error: str = ""):
+        self.status = status
+        self.tactic = tactic
+        self.state = state
+        self.error = error
+    
+    @property
+    def is_proof_done(self) -> bool:
+        return self.status == self.PROOF_DONE
+    
+    @property
+    def is_valid(self) -> bool:
+        return self.status in (self.PROOF_DONE, self.VALID)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status,
+            "tactic": self.tactic,
+            "state": self.state,
+            "error": self.error,
+            "is_valid": self.is_valid,
+            "is_proof_done": self.is_proof_done
+        }
+    
+    def __repr__(self) -> str:
+        return f"CheckResult(status='{self.status}', tactic='{self.tactic}')"
+
+
 class ProofStep:
     """Represents a single proof step."""
 
-    def __init__(self, tactic: str, state: str, success: bool):
+    def __init__(self, tactic: str, state: str, success: bool, complete: bool = False):
         """Initialize proof step.
 
         Args:
             tactic: The tactic applied
-            state: Resulting proof state
+            state: Resulting proof state (goals after tactic or error message)
             success: Whether tactic application succeeded
+            complete: Whether this tactic completed the proof
         """
         self.tactic = tactic
         self.state = state
         self.success = success
+        self.complete = complete
+
+    @property
+    def check_result(self) -> CheckResult:
+        """Get the check result for this step (llmlean-style)."""
+        if self.complete:
+            return CheckResult(CheckResult.PROOF_DONE, self.tactic, self.state)
+        elif self.success:
+            return CheckResult(CheckResult.VALID, self.tactic, self.state)
+        else:
+            return CheckResult(CheckResult.INVALID, self.tactic, self.state, self.state)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "tactic": self.tactic,
+            "state": self.state,
+            "success": self.success,
+            "complete": self.complete,
+            "check_result": self.check_result.status
+        }
 
     def __repr__(self) -> str:
-        return f"ProofStep(tactic='{self.tactic}', success={self.success})"
+        return f"ProofStep(tactic='{self.tactic}', success={self.success}, complete={self.complete})"
 
 
 class ProofResult:
-    """Result of proof generation attempt."""
+    """Result of proof generation attempt.
+    
+    This class provides llmlean-compatible output formats for integration
+    with other tools and for JSON serialization.
+    """
 
     def __init__(
         self,
@@ -41,7 +102,7 @@ class ProofResult:
         """Initialize proof result.
 
         Args:
-            success: Whether proof generation succeeded
+            success: Whether proof generation succeeded (proof complete)
             theorem: The theorem statement
             proof_steps: List of proof steps attempted
             complete_proof: Complete proof code if successful
@@ -68,6 +129,60 @@ class ProofResult:
             f"steps={len(self.proof_steps)}, "
             f"valid_steps={self.valid_steps_count})"
         )
+    
+    @property
+    def has_sorry(self) -> bool:
+        """Check if the proof contains 'sorry'."""
+        if self.complete_proof:
+            return "sorry" in self.complete_proof
+        return False
+    
+    @property
+    def is_valid_no_sorry(self) -> bool:
+        """Check if proof is valid without sorry (like kimina-lean-server)."""
+        return self.success and not self.has_sorry
+    
+    @property
+    def is_valid_with_sorry(self) -> bool:
+        """Check if proof is valid (may contain sorry for incomplete parts)."""
+        return self.success or (self.valid_steps_count > 0 and self.complete_proof is not None)
+
+    def get_valid_tactics(self) -> List[str]:
+        """Get list of valid tactics only.
+        
+        Returns:
+            List of tactic strings that were successfully applied
+        """
+        return [step.tactic for step in self.proof_steps if step.success]
+    
+    def get_suggestions(self) -> List[Dict[str, Any]]:
+        """Get llmlean-style suggestions list.
+        
+        Returns a list of suggestions similar to llmlean's format:
+        [{"tactic": "...", "status": "ProofDone"|"Valid"|"Invalid"}, ...]
+        """
+        return [step.to_dict() for step in self.proof_steps]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization.
+        
+        Returns:
+            Dictionary with all proof result information
+        """
+        return {
+            "success": self.success,
+            "theorem": self.theorem,
+            "iterations": self.iterations,
+            "valid_steps_count": self.valid_steps_count,
+            "total_steps": len(self.proof_steps),
+            "has_sorry": self.has_sorry,
+            "is_valid_no_sorry": self.is_valid_no_sorry,
+            "is_valid_with_sorry": self.is_valid_with_sorry,
+            "error": self.error,
+            "complete_proof": self.complete_proof,
+            "valid_tactics": self.get_valid_tactics(),
+            "steps": self.get_suggestions()
+        }
 
     def get_proof_code(self) -> str:
         """Get the complete proof code.
@@ -78,17 +193,9 @@ class ProofResult:
         if self.complete_proof:
             return self.complete_proof
 
-        # Construct from steps
-        if not self.theorem.strip().startswith("theorem"):
-            code = f"theorem {self.theorem} := by\n"
-        else:
-            code = f"{self.theorem} := by\n"
-
-        for step in self.proof_steps:
-            if step.success:
-                code += f"  {step.tactic}\n"
-
-        return code
+        # Construct from valid steps only
+        valid_tactics = [s.tactic for s in self.proof_steps if s.success]
+        return Lean4Agent._format_theorem_code(self.theorem, valid_tactics)
 
     def get_proof_status_summary(self) -> str:
         """Get a summary of proof validation status.
@@ -144,7 +251,28 @@ class Lean4Agent:
         self.llm = self._create_llm_interface()
 
         # Initialize Lean client
-        self.lean_client = LeanClient()
+        self.lean_client = LeanClient(project_path=self.config.lean_project_path)
+
+    @staticmethod
+    def _format_theorem_code(theorem: str, tactics: List[str]) -> str:
+        """Format theorem with tactics into Lean code.
+        
+        Args:
+            theorem: The theorem statement
+            tactics: List of tactics to apply
+            
+        Returns:
+            Formatted Lean code
+        """
+        if not theorem.strip().startswith("theorem"):
+            code = f"theorem {theorem} := by\n"
+        else:
+            code = f"{theorem} := by\n"
+        
+        for tactic in tactics:
+            code += f"  {tactic}\n"
+        
+        return code
 
     def _create_llm_interface(self) -> LLMInterface:
         """Create LLM interface based on configuration.
@@ -211,24 +339,27 @@ class Lean4Agent:
                 if verbose:
                     print(f"Generated tactic: {next_tactic}")
 
-                # Apply tactic in Lean
+                # Apply tactic in Lean (keeps original theorem name)
                 result = self.lean_client.apply_tactic(
                     theorem=theorem, current_proof=current_proof, new_tactic=next_tactic
                 )
 
-                # Record the step
+                # Record the step with complete flag
                 step = ProofStep(
-                    tactic=next_tactic, state=result["state"], success=result["success"]
+                    tactic=next_tactic, 
+                    state=result["state"], 
+                    success=result["success"],
+                    complete=result.get("complete", False)
                 )
                 proof_steps.append(step)
 
                 if not result["success"]:
                     if verbose:
                         print(f"Tactic failed: {result['error']}")
-                    # Continue trying with next tactic
+                    # Don't update current_state - keep previous goal for next iteration
                     continue
 
-                # Update proof state
+                # Tactic succeeded - update proof state
                 current_proof = result["proof"]
                 current_state = result["state"]
 
@@ -241,13 +372,7 @@ class Lean4Agent:
                         print(f"\n✓ Proof completed in {iteration + 1} iterations!")
 
                     # Build complete proof code
-                    if not theorem.strip().startswith("theorem"):
-                        complete_proof = f"theorem {theorem} := by\n"
-                    else:
-                        complete_proof = f"{theorem} := by\n"
-
-                    for tactic in current_proof:
-                        complete_proof += f"  {tactic}\n"
+                    complete_proof = self._format_theorem_code(theorem, current_proof)
 
                     return ProofResult(
                         success=True,
@@ -275,16 +400,9 @@ class Lean4Agent:
 
         # Generate proof with 'sorry' if enabled and there are valid steps
         complete_proof_with_sorry = None
-        if self.config.use_sorry_on_timeout:
-            if not theorem.strip().startswith("theorem"):
-                complete_proof_with_sorry = f"theorem {theorem} := by\n"
-            else:
-                complete_proof_with_sorry = f"{theorem} := by\n"
-
-            for step in valid_steps:
-                complete_proof_with_sorry += f"  {step.tactic}\n"
-
-            # Add sorry to complete the proof
+        if self.config.use_sorry_on_timeout and valid_steps:
+            complete_proof_with_sorry = self._format_theorem_code(theorem, 
+                                                                   [s.tactic for s in valid_steps])
             complete_proof_with_sorry += "  sorry\n"
 
             if verbose:
@@ -312,3 +430,214 @@ class Lean4Agent:
             Verification result dictionary
         """
         return self.lean_client.verify_proof(code)
+
+    def suggest_tactic(
+        self, 
+        theorem: str, 
+        current_proof: Optional[List[str]] = None,
+        num_suggestions: int = 1,
+        prefix: str = "",
+        verbose: bool = False
+    ) -> List[CheckResult]:
+        """Generate next-tactic suggestions (llmstep-like functionality).
+        
+        This is similar to llmlean's `llmstep` tactic - it generates
+        suggestions for the next tactic given the current proof state.
+        
+        Args:
+            theorem: The theorem statement
+            current_proof: List of tactics already applied (empty for start)
+            num_suggestions: Number of suggestions to generate
+            prefix: Optional prefix that tactics should start with
+            verbose: Whether to print progress
+            
+        Returns:
+            List of CheckResult objects with tactic suggestions and their validity
+        """
+        current_proof = current_proof or []
+        
+        # Get current state from Lean
+        if current_proof:
+            # Apply current proof to get state
+            result = self.lean_client.apply_tactic(
+                theorem=theorem,
+                current_proof=current_proof[:-1] if current_proof else [],
+                new_tactic=current_proof[-1] if current_proof else ""
+            )
+            if current_proof and result["success"]:
+                current_state = result["state"]
+            else:
+                current_state = self.lean_client.get_initial_state(theorem)
+        else:
+            current_state = self.lean_client.get_initial_state(theorem)
+        
+        suggestions = []
+        seen_tactics = set()
+        
+        for i in range(num_suggestions):
+            try:
+                # Generate tactic with some temperature variation
+                temp = self.config.temperature + (i * 0.1)  # Increase temp for variety
+                next_tactic = self.llm.generate_proof_step(
+                    theorem=theorem,
+                    current_state=current_state,
+                    temperature=min(temp, 2.0),
+                )
+                
+                # Apply prefix filter
+                if prefix and not next_tactic.strip().startswith(prefix):
+                    continue
+                
+                # Skip duplicates
+                if next_tactic in seen_tactics:
+                    continue
+                seen_tactics.add(next_tactic)
+                
+                # Check the tactic
+                result = self.lean_client.apply_tactic(
+                    theorem=theorem,
+                    current_proof=current_proof,
+                    new_tactic=next_tactic
+                )
+                
+                if result["complete"]:
+                    status = CheckResult.PROOF_DONE
+                elif result["success"]:
+                    status = CheckResult.VALID
+                else:
+                    status = CheckResult.INVALID
+                
+                suggestions.append(CheckResult(
+                    status=status,
+                    tactic=next_tactic,
+                    state=result["state"],
+                    error=result.get("error", "")
+                ))
+                
+                if verbose:
+                    print(f"Suggestion {len(suggestions)}: {next_tactic} ({status})")
+                    
+            except Exception as e:
+                if verbose:
+                    print(f"Error generating suggestion: {e}")
+        
+        # Sort suggestions: ProofDone first, then Valid, then Invalid
+        suggestions.sort(key=lambda x: (
+            0 if x.status == CheckResult.PROOF_DONE else
+            1 if x.status == CheckResult.VALID else 2
+        ))
+        
+        return suggestions
+    
+    def get_valid_suggestions(
+        self,
+        theorem: str,
+        current_proof: Optional[List[str]] = None,
+        num_suggestions: int = 5,
+        prefix: str = "",
+        verbose: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Get only valid tactic suggestions (for integration with other tools).
+        
+        Returns a list of valid suggestions as dictionaries.
+        
+        Args:
+            theorem: The theorem statement
+            current_proof: List of tactics already applied
+            num_suggestions: Maximum number of suggestions to try
+            prefix: Optional prefix filter
+            verbose: Whether to print progress
+            
+        Returns:
+            List of dicts with valid suggestions:
+            [{"tactic": "...", "status": "ProofDone"|"Valid", "state": "..."}]
+        """
+        suggestions = self.suggest_tactic(
+            theorem=theorem,
+            current_proof=current_proof,
+            num_suggestions=num_suggestions,
+            prefix=prefix,
+            verbose=verbose
+        )
+        
+        return [s.to_dict() for s in suggestions if s.is_valid]
+    
+    def check_tactic(
+        self,
+        theorem: str,
+        tactic: str,
+        current_proof: Optional[List[str]] = None
+    ) -> CheckResult:
+        """Check if a single tactic is valid.
+        
+        Args:
+            theorem: The theorem statement
+            tactic: The tactic to check
+            current_proof: List of tactics already applied
+            
+        Returns:
+            CheckResult with the tactic's validity status
+        """
+        current_proof = current_proof or []
+        
+        result = self.lean_client.apply_tactic(
+            theorem=theorem,
+            current_proof=current_proof,
+            new_tactic=tactic
+        )
+        
+        if result["complete"]:
+            status = CheckResult.PROOF_DONE
+        elif result["success"]:
+            status = CheckResult.VALID
+        else:
+            status = CheckResult.INVALID
+        
+        return CheckResult(
+            status=status,
+            tactic=tactic,
+            state=result["state"],
+            error=result.get("error", "")
+        )
+    
+    def check_tactics_batch(
+        self,
+        theorem: str,
+        tactics: List[str],
+        current_proof: Optional[List[str]] = None
+    ) -> List[CheckResult]:
+        """Check multiple tactics in batch.
+        
+        Args:
+            theorem: The theorem statement
+            tactics: List of tactics to check
+            current_proof: List of tactics already applied
+            
+        Returns:
+            List of CheckResult for each tactic
+        """
+        current_proof = current_proof or []
+        
+        results = self.lean_client.check_tactics_batch(
+            theorem=theorem,
+            current_proof=current_proof,
+            candidate_tactics=tactics
+        )
+        
+        check_results = []
+        for r in results:
+            if r.get("complete", False):
+                status = CheckResult.PROOF_DONE
+            elif r.get("success", False):
+                status = CheckResult.VALID
+            else:
+                status = CheckResult.INVALID
+            
+            check_results.append(CheckResult(
+                status=status,
+                tactic=r.get("tactic", ""),
+                state=r.get("state", ""),
+                error=r.get("error", "")
+            ))
+        
+        return check_results

@@ -12,6 +12,8 @@ Lean4Agent is a Python toolkit that leverages Large Language Models (LLMs) to au
 - ⚙️ **Easy Configuration**: Simple setup with environment variables or configuration objects
 - 📦 **Pip Installable**: Install as a package and use in your projects
 - 🔍 **Proof Verification**: Built-in Lean 4 integration for verifying proofs
+- ⚡ **Kimina Mode**: Server-based verification for high-throughput batch processing
+- 🚀 **High Performance**: Multiple verification modes (REPL, Kimina)
 
 ## Installation
 
@@ -49,8 +51,12 @@ pip install -e ".[dev]"
 ```python
 from lean4agent import Lean4Agent, Config
 
-# Create agent with default configuration
-agent = Lean4Agent()
+# Create agent with explicit model configuration
+config = Config(
+    llm_provider="ollama",
+    ollama_model="bfs-prover-v2:32b"  # Model name is required
+)
+agent = Lean4Agent(config)
 
 # Define a theorem to prove
 theorem = "example_theorem (a b : Nat) : a + b = b + a"
@@ -74,7 +80,7 @@ from lean4agent import Lean4Agent, Config
 config = Config(
     llm_provider="openai",
     openai_api_key="your-api-key",
-    openai_model="gpt-4"
+    openai_model="gpt-4"  # Model name is required
 )
 
 agent = Lean4Agent(config)
@@ -108,6 +114,30 @@ agent = Lean4Agent(config)
 result = agent.generate_proof(theorem, verbose=True)
 ```
 
+### Using Kimina Mode (High Performance)
+
+For maximum performance and batch verification, use kimina-lean-server:
+
+```python
+from lean4agent import Lean4Agent, Config
+
+# Start kimina server first:
+# docker run -d -p 80:80 projectnumina/kimina-lean-server:2.0.0
+
+config = Config(
+    llm_provider="ollama",
+    ollama_model="bfs-prover-v2:32b",
+    use_kimina=True  # Uses http://localhost:80 by default
+)
+
+agent = Lean4Agent(config)
+result = agent.generate_proof(theorem, verbose=True)
+```
+
+**Performance Comparison:**
+- REPL mode: Local Lean process, good for development
+- Kimina mode: Server-based, ideal for batch verification at scale
+
 ### Using Environment Variables
 
 Create a `.env` file:
@@ -140,14 +170,17 @@ agent = Lean4Agent(config)
 |-----------|-------------|---------|
 | `llm_provider` | LLM provider: 'ollama' or 'openai' | `'ollama'` |
 | `ollama_url` | Ollama API URL | `'http://localhost:11434'` |
-| `ollama_model` | Ollama model name | `'bfs-prover-v2:32b'` |
+| `ollama_model` | Ollama model name (required when using ollama) | `None` (must be specified) |
 | `openai_api_key` | OpenAI API key | `None` |
-| `openai_model` | OpenAI model name | `'gpt-4'` |
+| `openai_model` | OpenAI model name (required when using openai) | `None` (must be specified) |
 | `openai_base_url` | OpenAI API base URL (for compatible APIs) | `None` |
 | `max_iterations` | Maximum proof generation iterations | `50` |
 | `temperature` | LLM generation temperature | `0.7` |
 | `timeout` | API request timeout (seconds) | `30` |
 | `use_sorry_on_timeout` | Add 'sorry' when max iterations reached | `True` |
+| `use_repl` | Use persistent Lean REPL for better performance | `True` |
+| `use_kimina` | Use kimina-lean-server for batch verification | `False` |
+| `kimina_url` | URL for kimina-lean-server | `'http://localhost:80'` |
 
 ## Advanced Usage
 
@@ -247,10 +280,39 @@ python examples/openai_example.py
 ## How It Works
 
 1. **Initialize**: Agent is configured with LLM provider and Lean 4 client
-2. **Generate Tactic**: LLM generates the next proof step based on current state
-3. **Apply & Verify**: Tactic is applied in Lean 4 and verified
-4. **Iterate**: Process repeats until proof is complete or max iterations reached
-5. **Return Result**: Complete proof or error information is returned
+2. **Start Connection**: Choose verification mode (REPL or Kimina)
+3. **Generate Tactic**: LLM generates the next proof step based on current state
+4. **Apply & Verify**: Tactic is applied in Lean 4 and verified incrementally
+5. **Iterate**: Process repeats until proof is complete or max iterations reached
+6. **Return Result**: Complete proof or error information is returned
+
+### Verification Modes
+
+Lean4Agent supports two verification modes with different performance characteristics:
+
+| Mode | Speed | Setup | Best For |
+|------|-------|-------|----------|
+| **REPL** | Good | Default | Development, single proofs |
+| **Kimina** | Best | Server | Batch verification, research |
+
+**Kimina Mode** uses kimina-lean-server for high-throughput batch verification,
+ideal for processing thousands of proofs.
+
+### Performance Optimizations
+
+Lean4Agent includes performance optimizations:
+
+- **Kimina Support**: Server-based verification for batch processing at scale
+- **Optimized File Handling**: Reuses temporary files to reduce I/O overhead
+- **Batch Checking**: Supports checking multiple candidate tactics efficiently
+- **Multiple Modes**: Choose between REPL or Kimina based on your needs
+
+### Comparison with llmlean
+
+Lean4Agent provides similar functionality to llmlean but as a Python library:
+
+- **llmlean**: Native Lean integration, used within Lean files via `llmstep` and `llmqed` tactics
+- **lean4agent**: Python API for programmatic proof generation and automation
 
 ### BFS-Prover-V2 Integration
 

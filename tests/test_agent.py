@@ -47,7 +47,7 @@ def test_proof_result_get_proof_code():
 
 def test_lean4agent_initialization():
     """Test Lean4Agent initialization with config."""
-    config = Config(llm_provider="ollama")
+    config = Config(llm_provider="ollama", ollama_model="test-model")
 
     with patch("lean4agent.agent.LeanClient"):
         agent = Lean4Agent(config)
@@ -58,14 +58,14 @@ def test_lean4agent_initialization_from_env():
     """Test Lean4Agent initialization from environment."""
     with patch("lean4agent.agent.LeanClient"):
         with patch.object(Config, "from_env") as mock_from_env:
-            mock_from_env.return_value = Config(llm_provider="ollama")
+            mock_from_env.return_value = Config(llm_provider="ollama", ollama_model="test-model")
             agent = Lean4Agent()
             mock_from_env.assert_called_once()
 
 
 def test_lean4agent_create_ollama_interface():
     """Test LLM interface creation for Ollama."""
-    config = Config(llm_provider="ollama")
+    config = Config(llm_provider="ollama", ollama_model="test-model")
 
     with patch("lean4agent.agent.LeanClient"):
         agent = Lean4Agent(config)
@@ -85,7 +85,7 @@ def test_lean4agent_invalid_provider():
 
 def test_lean4agent_generate_proof_success():
     """Test successful proof generation."""
-    config = Config(llm_provider="ollama")
+    config = Config(llm_provider="ollama", ollama_model="test-model")
 
     with patch("lean4agent.agent.LeanClient") as MockLeanClient:
         # Mock LeanClient
@@ -114,7 +114,7 @@ def test_lean4agent_generate_proof_success():
 
 def test_lean4agent_generate_proof_max_iterations():
     """Test proof generation reaching max iterations."""
-    config = Config(llm_provider="ollama", max_iterations=3)
+    config = Config(llm_provider="ollama", ollama_model="test-model", max_iterations=3)
 
     with patch("lean4agent.agent.LeanClient") as MockLeanClient:
         mock_lean = MockLeanClient.return_value
@@ -139,7 +139,7 @@ def test_lean4agent_generate_proof_max_iterations():
 
 def test_lean4agent_verify_proof():
     """Test proof verification."""
-    config = Config(llm_provider="ollama")
+    config = Config(llm_provider="ollama", ollama_model="test-model")
 
     with patch("lean4agent.agent.LeanClient") as MockLeanClient:
         mock_lean = MockLeanClient.return_value
@@ -189,7 +189,7 @@ def test_proof_result_get_proof_status_summary():
 
 def test_lean4agent_sorry_on_timeout():
     """Test that 'sorry' is added when max iterations reached."""
-    config = Config(llm_provider="ollama", max_iterations=2, use_sorry_on_timeout=True)
+    config = Config(llm_provider="ollama", ollama_model="test-model", max_iterations=2, use_sorry_on_timeout=True)
 
     with patch("lean4agent.agent.LeanClient") as MockLeanClient:
         mock_lean = MockLeanClient.return_value
@@ -215,7 +215,7 @@ def test_lean4agent_sorry_on_timeout():
 
 def test_lean4agent_no_sorry_when_disabled():
     """Test that 'sorry' is not added when disabled."""
-    config = Config(llm_provider="ollama", max_iterations=2, use_sorry_on_timeout=False)
+    config = Config(llm_provider="ollama", ollama_model="test-model", max_iterations=2, use_sorry_on_timeout=False)
 
     with patch("lean4agent.agent.LeanClient") as MockLeanClient:
         mock_lean = MockLeanClient.return_value
