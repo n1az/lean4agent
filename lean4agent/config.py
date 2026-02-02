@@ -42,6 +42,9 @@ class Config(BaseModel):
     use_repl: bool = Field(
         default=True, description="Use persistent Lean REPL for better performance"
     )
+    use_lsp: bool = Field(
+        default=False, description="Use LSP server for best performance (experimental)"
+    )
 
     @classmethod
     def from_env(cls, **kwargs) -> "Config":
@@ -86,6 +89,12 @@ class Config(BaseModel):
             )
         if os.getenv("USE_REPL"):
             config_dict["use_repl"] = os.getenv("USE_REPL").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+        if os.getenv("USE_LSP"):
+            config_dict["use_lsp"] = os.getenv("USE_LSP").lower() in (
                 "true",
                 "1",
                 "yes",

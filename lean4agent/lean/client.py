@@ -3,33 +3,59 @@
 import subprocess
 import tempfile
 import os
+import asyncio
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from .repl import LeanREPL
+from .lsp_client import LeanLSPClient
 
 
 class LeanClient:
     """Client for interacting with Lean 4.
 
     This client manages Lean 4 proof verification and state extraction.
+    Supports both subprocess-based and LSP-based communication.
     """
 
-    def __init__(self, lean_executable: str = "lean", use_repl: bool = True):
+    def __init__(
+        self, 
+        lean_executable: str = "lean", 
+        use_repl: bool = True,
+        use_lsp: bool = False
+    ):
         """Initialize Lean client.
 
         Args:
             lean_executable: Path to lean executable (default: 'lean')
             use_repl: Whether to use persistent REPL for better performance (default: True)
+            use_lsp: Whether to use LSP server for best performance (default: False)
         """
         self.lean_executable = lean_executable
         self.use_repl = use_repl
+        self.use_lsp = use_lsp
         self.repl: Optional[LeanREPL] = None
+        self.lsp_client: Optional[LeanLSPClient] = None
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        
         self._verify_lean_installation()
         
-        # Start REPL if enabled
-        if self.use_repl:
+        # Start REPL if enabled and not using LSP
+        if self.use_lsp:
+            # Initialize LSP client (will be started when needed)
+            self.lsp_client = LeanLSPClient(lean_executable)
+        elif self.use_repl:
             self.repl = LeanREPL(lean_executable)
             self.repl.start()
+            
+    def _get_event_loop(self) -> asyncio.AbstractEventLoop:
+        """Get or create event loop for async operations."""
+        if self._event_loop is None:
+            try:
+                self._event_loop = asyncio.get_event_loop()
+            except RuntimeError:
+                self._event_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._event_loop)
+        return self._event_loop
 
     def _verify_lean_installation(self) -> None:
         """Verify that Lean 4 is installed.
@@ -49,11 +75,15 @@ class LeanClient:
             )
             
     def close(self) -> None:
-        """Explicitly close the REPL and clean up resources.
+        """Explicitly close the REPL/LSP and clean up resources.
         
         This method provides deterministic cleanup. It's recommended to use
         this explicitly or use the client as a context manager.
         """
+        if self.lsp_client:
+            loop = self._get_event_loop()
+            loop.run_until_complete(self.lsp_client.stop())
+            self.lsp_client = None
         if self.repl:
             self.repl.stop()
             self.repl = None
@@ -67,7 +97,7 @@ class LeanClient:
         self.close()
             
     def __del__(self):
-        """Cleanup REPL on deletion.
+        """Cleanup REPL/LSP on deletion.
         
         Note: __del__ is not guaranteed to be called. Use close() or
         context manager for deterministic cleanup.
@@ -86,6 +116,11 @@ class LeanClient:
                 - error: Optional[str] - error message if failed
                 - output: str - full output from Lean
         """
+        # Use LSP if available
+        if self.lsp_client:
+            loop = self._get_event_loop()
+            return loop.run_until_complete(self.lsp_client.check_proof(code))
+            
         # Use REPL if available
         if self.repl:
             return self.repl.check_proof(code)
@@ -130,6 +165,32 @@ class LeanClient:
                 - error: Optional[str] - error message if failed
                 - complete: bool - whether proof is complete
         """
+        # Use LSP if available (highest performance)
+        if self.lsp_client:
+            loop = self._get_event_loop()
+            result = loop.run_until_complete(
+                self.lsp_client.check_tactic_incremental(
+                    theorem, current_proof, new_tactic
+                )
+            )
+            # Convert LSP result to expected format
+            if result["success"]:
+                return {
+                    "success": True,
+                    "proof": current_proof + [new_tactic],
+                    "state": result["state"],
+                    "error": None,
+                    "complete": result["complete"]
+                }
+            else:
+                return {
+                    "success": False,
+                    "proof": current_proof,
+                    "state": result["state"],
+                    "error": result["error"],
+                    "complete": False
+                }
+        
         # Use REPL if available for better performance
         if self.repl:
             result = self.repl.check_tactic_incremental(
@@ -255,6 +316,37 @@ class LeanClient:
                 - complete: bool
                 - tactic: str
         """
+        # Use LSP if available (best performance)
+        if self.lsp_client:
+            loop = self._get_event_loop()
+            results = loop.run_until_complete(
+                self.lsp_client.check_tactics_batch(
+                    theorem, current_proof, candidate_tactics
+                )
+            )
+            # Convert to expected format
+            converted_results = []
+            for result in results:
+                if result["success"]:
+                    converted_results.append({
+                        "success": True,
+                        "proof": current_proof + [result["tactic"]],
+                        "state": result["state"],
+                        "error": None,
+                        "complete": result["complete"],
+                        "tactic": result["tactic"]
+                    })
+                else:
+                    converted_results.append({
+                        "success": False,
+                        "proof": current_proof,
+                        "state": result["state"],
+                        "error": result["error"],
+                        "complete": False,
+                        "tactic": result["tactic"]
+                    })
+            return converted_results
+        
         if self.repl:
             # Use REPL batch checking for better performance
             results = self.repl.check_tactics_batch(
