@@ -193,17 +193,9 @@ class ProofResult:
         if self.complete_proof:
             return self.complete_proof
 
-        # Construct from steps
-        if not self.theorem.strip().startswith("theorem"):
-            code = f"theorem {self.theorem} := by\n"
-        else:
-            code = f"{self.theorem} := by\n"
-
-        for step in self.proof_steps:
-            if step.success:
-                code += f"  {step.tactic}\n"
-
-        return code
+        # Construct from valid steps only
+        valid_tactics = [s.tactic for s in self.proof_steps if s.success]
+        return Lean4Agent._format_theorem_code(self.theorem, valid_tactics)
 
     def get_proof_status_summary(self) -> str:
         """Get a summary of proof validation status.
@@ -260,6 +252,27 @@ class Lean4Agent:
 
         # Initialize Lean client
         self.lean_client = LeanClient(project_path=self.config.lean_project_path)
+
+    @staticmethod
+    def _format_theorem_code(theorem: str, tactics: List[str]) -> str:
+        """Format theorem with tactics into Lean code.
+        
+        Args:
+            theorem: The theorem statement
+            tactics: List of tactics to apply
+            
+        Returns:
+            Formatted Lean code
+        """
+        if not theorem.strip().startswith("theorem"):
+            code = f"theorem {theorem} := by\n"
+        else:
+            code = f"{theorem} := by\n"
+        
+        for tactic in tactics:
+            code += f"  {tactic}\n"
+        
+        return code
 
     def _create_llm_interface(self) -> LLMInterface:
         """Create LLM interface based on configuration.
@@ -359,13 +372,7 @@ class Lean4Agent:
                         print(f"\n✓ Proof completed in {iteration + 1} iterations!")
 
                     # Build complete proof code
-                    if not theorem.strip().startswith("theorem"):
-                        complete_proof = f"theorem {theorem} := by\n"
-                    else:
-                        complete_proof = f"{theorem} := by\n"
-
-                    for tactic in current_proof:
-                        complete_proof += f"  {tactic}\n"
+                    complete_proof = self._format_theorem_code(theorem, current_proof)
 
                     return ProofResult(
                         success=True,
@@ -393,16 +400,9 @@ class Lean4Agent:
 
         # Generate proof with 'sorry' if enabled and there are valid steps
         complete_proof_with_sorry = None
-        if self.config.use_sorry_on_timeout:
-            if not theorem.strip().startswith("theorem"):
-                complete_proof_with_sorry = f"theorem {theorem} := by\n"
-            else:
-                complete_proof_with_sorry = f"{theorem} := by\n"
-
-            for step in valid_steps:
-                complete_proof_with_sorry += f"  {step.tactic}\n"
-
-            # Add sorry to complete the proof
+        if self.config.use_sorry_on_timeout and valid_steps:
+            complete_proof_with_sorry = self._format_theorem_code(theorem, 
+                                                                   [s.tactic for s in valid_steps])
             complete_proof_with_sorry += "  sorry\n"
 
             if verbose:

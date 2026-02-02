@@ -1,6 +1,4 @@
-"""
-Test incremental proof generation to verify "already declared" error is fixed.
-"""
+"""Test incremental proof generation to verify REPL environment handling."""
 
 import sys
 from pathlib import Path
@@ -22,23 +20,17 @@ agent = Lean4Agent(config)
 theorem = "theorem test_increment : 2 + 2 = 4"
 
 print("Testing incremental proof generation...")
-print(f"Theorem: {theorem}")
+print(f"Theorem: {theorem}\n")
 print("=" * 60)
 
 result = agent.generate_proof(theorem, verbose=True)
 
 print("\n" + "=" * 60)
 if result.success:
-    print("✅ SUCCESS! Original theorem name preserved:")
+    print("✅ SUCCESS! Proof completed:")
     print(result.get_proof_code())
 else:
     print(f"❌ FAILED: {result.error}")
     if result.complete_proof:
         print("\nPartial proof:")
         print(result.complete_proof)
-
-print("\n" + "=" * 60)
-print("Key points:")
-print("✓ Original theorem name 'test_increment' is preserved")
-print("✓ No 'already declared' errors")
-print("✓ REPL environment is reset between tactic checks")
