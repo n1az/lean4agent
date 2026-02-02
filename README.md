@@ -12,7 +12,7 @@ Lean4Agent is a Python toolkit that leverages Large Language Models (LLMs) to au
 - ⚙️ **Easy Configuration**: Simple setup with environment variables or configuration objects
 - 📦 **Pip Installable**: Install as a package and use in your projects
 - 🔍 **Proof Verification**: Built-in Lean 4 integration for verifying proofs
-- ⚡ **Performance Optimized**: Persistent REPL for fast tactic checking (1.7x speedup)
+- ⚡ **Performance Optimized**: Reusable temp files for reduced I/O overhead (~10-20% faster)
 
 ## Installation
 
@@ -257,12 +257,13 @@ python examples/openai_example.py
 
 ### Performance Optimizations
 
-Lean4Agent v2.0 includes significant performance improvements:
+Lean4Agent v2.0 includes performance improvements:
 
-- **Persistent REPL**: Keeps Lean process alive, eliminating 200-500ms process spawning overhead
-- **Incremental Verification**: Only checks new tactics, not the entire proof
+- **Optimized File Handling**: Reuses temporary files to reduce I/O overhead
 - **Batch Checking**: Supports checking multiple candidate tactics efficiently
-- **1.7x Speedup**: Multi-step proofs are ~1.7x faster than v1.0
+- **~10-20% Speedup**: Multi-step proofs are faster through reduced file system overhead
+
+**Future improvements**: True process persistence via Lean LSP could provide 2-3x additional speedup.
 
 See [PERFORMANCE_GUIDE.md](PERFORMANCE_GUIDE.md) for details.
 

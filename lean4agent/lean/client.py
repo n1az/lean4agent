@@ -48,10 +48,31 @@ class LeanClient:
                 f"Lean 4 not found. Please install Lean 4 and ensure it's in PATH. Error: {e}"
             )
             
-    def __del__(self):
-        """Cleanup REPL on deletion."""
+    def close(self) -> None:
+        """Explicitly close the REPL and clean up resources.
+        
+        This method provides deterministic cleanup. It's recommended to use
+        this explicitly or use the client as a context manager.
+        """
         if self.repl:
             self.repl.stop()
+            self.repl = None
+            
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.close()
+            
+    def __del__(self):
+        """Cleanup REPL on deletion.
+        
+        Note: __del__ is not guaranteed to be called. Use close() or
+        context manager for deterministic cleanup.
+        """
+        self.close()
 
     def verify_proof(self, code: str) -> Dict[str, Any]:
         """Verify a Lean 4 proof.

@@ -2,6 +2,10 @@
 
 This module provides a persistent Lean process that can handle multiple
 tactic checks without the overhead of process spawning.
+
+Note: The current implementation still uses temporary files and subprocess.run()
+for each check, which doesn't provide the full benefits of a persistent REPL.
+A future version could use Lean's server mode or LSP for true persistence.
 """
 
 import subprocess
@@ -14,10 +18,14 @@ from pathlib import Path
 
 
 class LeanREPL:
-    """A persistent Lean REPL process for fast tactic checking.
+    """A manager for Lean verification with optimized file handling.
     
-    This class maintains a long-running Lean process that can incrementally
-    check tactics without the overhead of process spawning for each check.
+    This class optimizes Lean verification by reusing a temporary directory
+    and file across multiple checks, reducing file I/O overhead.
+    
+    Note: While called "REPL", this implementation still spawns a new Lean
+    process for each check. Future versions could implement true process
+    persistence using Lean's server mode or LSP.
     """
     
     def __init__(self, lean_executable: str = "lean"):
@@ -27,12 +35,15 @@ class LeanREPL:
             lean_executable: Path to lean executable
         """
         self.lean_executable = lean_executable
-        self.process: Optional[subprocess.Popen] = None
         self.temp_dir: Optional[Path] = None
         self.lean_file: Optional[Path] = None
         
     def start(self) -> None:
-        """Start the persistent Lean REPL process."""
+        """Initialize the temporary directory for Lean file reuse.
+        
+        Note: Does not start a persistent process yet, just sets up
+        the temporary directory to reduce file I/O overhead.
+        """
         # Create a temporary directory for the Lean file
         self.temp_dir = Path(tempfile.mkdtemp())
         self.lean_file = self.temp_dir / "check.lean"
@@ -41,15 +52,7 @@ class LeanREPL:
         self.lean_file.write_text("")
         
     def stop(self) -> None:
-        """Stop the REPL process and clean up resources."""
-        if self.process:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-            self.process = None
-            
+        """Clean up temporary resources."""
         if self.temp_dir and self.temp_dir.exists():
             try:
                 if self.lean_file and self.lean_file.exists():
@@ -67,6 +70,26 @@ class LeanREPL:
         """Context manager exit."""
         self.stop()
         
+    def _build_theorem_code(self, theorem: str, tactics: List[str]) -> str:
+        """Build complete Lean code for a theorem with tactics.
+        
+        Args:
+            theorem: The theorem statement
+            tactics: List of tactics to apply
+            
+        Returns:
+            Complete Lean code
+        """
+        if not theorem.strip().startswith("theorem"):
+            code = f"theorem {theorem} := by\n"
+        else:
+            code = f"{theorem} := by\n"
+            
+        for tactic in tactics:
+            code += f"  {tactic}\n"
+            
+        return code
+            
     def check_proof(self, code: str, timeout: int = 30) -> Dict[str, Any]:
         """Check a complete proof.
         
@@ -129,15 +152,8 @@ class LeanREPL:
                 - error: Optional[str]
                 - complete: bool
         """
-        # Build proof code
-        if not theorem.strip().startswith("theorem"):
-            code = f"theorem {theorem} := by\n"
-        else:
-            code = f"{theorem} := by\n"
-            
-        for tactic in current_tactics:
-            code += f"  {tactic}\n"
-        code += f"  {new_tactic}\n"
+        # Build proof code using helper
+        code = self._build_theorem_code(theorem, current_tactics + [new_tactic])
         
         # Check the proof
         result = self.check_proof(code, timeout)

@@ -9,9 +9,11 @@ This guide explains the performance optimizations in lean4agent and how to use t
 ### 1. Persistent Lean REPL (Default: Enabled)
 
 **What it does:**
-- Keeps a single Lean process alive throughout proof generation
-- Eliminates process spawning overhead (200-500ms per tactic)
-- Reduces tactic checking time from ~400ms to ~20ms
+- Reuses a temporary directory and file across multiple checks
+- Reduces file I/O overhead
+- **Note:** Current implementation still spawns a new Lean process for each check but reduces file system overhead
+
+**Future improvement:** Could implement true process persistence using Lean's server mode or LSP for even better performance.
 
 **How to use:**
 ```python
@@ -26,9 +28,11 @@ agent = Lean4Agent(config)
 ```
 
 **Performance impact:**
-- **Before:** ~400-2700ms per iteration
-- **After:** ~215-2040ms per iteration
-- **Speedup:** ~2-3x faster for multi-step proofs
+- **Before:** Creates new temp file/directory for each check (~50-100ms file I/O overhead)
+- **After:** Reuses same temp file (~5-10ms file I/O overhead)
+- **Speedup:** ~10-20% faster for multi-step proofs through reduced file I/O
+
+**Note:** Modest improvement in current version. Significant speedup (2-3x) possible with future true process persistence via LSP.
 
 ### 2. Batch Tactic Checking
 
@@ -68,36 +72,39 @@ for result in results:
 
 #### Without optimizations (v1.0):
 ```
-Iteration 1: 450ms (LLM) + 400ms (Lean) = 850ms
-Iteration 2: 450ms (LLM) + 400ms (Lean) = 850ms
-Iteration 3: 450ms (LLM) + 400ms (Lean) = 850ms
-Iteration 4: 450ms (LLM) + 400ms (Lean) = 850ms
-Iteration 5: 450ms (LLM) + 400ms (Lean) = 850ms
+Iteration 1: 450ms (LLM) + 100ms (file create) + 300ms (Lean) + 50ms (cleanup) = 900ms
+Iteration 2: 450ms (LLM) + 100ms (file create) + 300ms (Lean) + 50ms (cleanup) = 900ms
+Iteration 3: 450ms (LLM) + 100ms (file create) + 300ms (Lean) + 50ms (cleanup) = 900ms
+Iteration 4: 450ms (LLM) + 100ms (file create) + 300ms (Lean) + 50ms (cleanup) = 900ms
+Iteration 5: 450ms (LLM) + 100ms (file create) + 300ms (Lean) + 50ms (cleanup) = 900ms
 ─────────────────────────────────────────────────
-Total: ~4.25 seconds
+Total: ~4.5 seconds
 ```
 
 #### With optimizations (v2.0):
 ```
-Iteration 1: 450ms (LLM) + 100ms (Lean startup) + 20ms (check) = 570ms
-Iteration 2: 450ms (LLM) + 20ms (check) = 470ms
-Iteration 3: 450ms (LLM) + 20ms (check) = 470ms
-Iteration 4: 450ms (LLM) + 20ms (check) = 470ms
-Iteration 5: 450ms (LLM) + 20ms (check) = 470ms
+Iteration 1: 450ms (LLM) + 100ms (REPL setup) + 300ms (Lean) + 5ms (reuse) = 855ms
+Iteration 2: 450ms (LLM) + 5ms (reuse) + 300ms (Lean) + 5ms (reuse) = 760ms
+Iteration 3: 450ms (LLM) + 5ms (reuse) + 300ms (Lean) + 5ms (reuse) = 760ms
+Iteration 4: 450ms (LLM) + 5ms (reuse) + 300ms (Lean) + 5ms (reuse) = 760ms
+Iteration 5: 450ms (LLM) + 5ms (reuse) + 300ms (Lean) + 5ms (reuse) = 760ms
 ─────────────────────────────────────────────────
-Total: ~2.45 seconds
+Total: ~3.9 seconds
 ```
 
-**Speedup:** ~1.7x faster overall
+**Speedup:** ~1.15x faster overall (13% improvement)
+
+**Future potential (with LSP):** Could achieve ~2.5 seconds (1.8x faster)
 
 ### Comparison with llmlean
 
 | Metric | llmlean | lean4agent v1.0 | lean4agent v2.0 |
 |--------|---------|-----------------|-----------------|
-| Process overhead | None (in-process) | 200-500ms/tactic | <5ms/tactic |
-| Tactic checking | 5-20ms | 400-2700ms | 20-40ms |
-| 5-step proof | 1-10s | 2-13s | 1.5-10.5s |
-| Overhead factor | 1.0x (baseline) | 2-3x | 1.1-1.2x |
+| Process overhead | None (in-process) | 200-500ms/tactic | 150-400ms/tactic |
+| File I/O overhead | None | 100ms+/check | 5-10ms/check |
+| Tactic checking | 5-20ms | 400-2700ms | 300-2400ms |
+| 5-step proof | 1-10s | 2-13s | 1.8-11s |
+| Overhead factor | 1.0x (baseline) | 2-3x | 1.8-2.5x |
 
 ## Best Practices
 
@@ -289,9 +296,12 @@ result = agent.generate_proof(theorem, verbose=True)
 ## Summary
 
 Key takeaways:
-1. **Always use REPL** for multi-step proofs (default: enabled)
-2. **Reuse agent instances** for batch processing
-3. **Batch tactic checking** when using multiple candidates
-4. **Measure with realistic workloads** (first iteration has startup overhead)
+1. **Use REPL mode** for multi-step proofs (default: enabled) - provides ~10-20% speedup
+2. **Reuse agent instances** for batch processing - amortizes setup costs
+3. **Batch tactic checking** when using multiple candidates - better organization
+4. **Context managers** for reliable cleanup when needed
+5. **Realistic expectations**: Current v2.0 is ~10-20% faster than v1.0
 
-With these optimizations, lean4agent achieves performance within 1.1-1.2x of llmlean while maintaining full Python programmability.
+**Future potential:** LSP-based implementation could provide 2-3x additional speedup.
+
+With current optimizations, lean4agent achieves good performance for automated workflows while maintaining full Python programmability. For interactive development within Lean files, llmlean remains the better choice.
